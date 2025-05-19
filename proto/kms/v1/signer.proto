@@ -3,8 +3,8 @@ syntax = "proto3";
 package kms.v1;
 
 service KmsEvmService {
-  rpc SignEvm(SignEvmRequest) returns (SignEvmResponse) {}
-  rpc GetSignerAddresses(GetSignerAddressesRequest) returns (GetSignerAddressesResponse) {}
+  rpc SignEvm(SignEvmRequest) returns (SignEvmResponse);
+  rpc GetSignerAddresses(GetSignerAddressesRequest) returns (GetSignerAddressesResponse);
 }
 
 message SignEvmRequest {
