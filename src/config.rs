@@ -8,8 +8,6 @@ use crate::config::signer::SignerConfig;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
-pub const DEFAULT_CONFIG_PATH: &str = "config.toml";
-
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Config {
     pub server: ServerConfig,
