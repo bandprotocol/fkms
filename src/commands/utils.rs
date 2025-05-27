@@ -14,7 +14,7 @@ pub fn get_config(path: PathBuf) -> anyhow::Result<Config> {
 pub fn get_local_signers_from_config(
     configs: &[LocalSignerConfig],
 ) -> anyhow::Result<Vec<LocalSigner>> {
-    let signers = configs
+    configs
         .iter()
         .map(|config| {
             let (pk, encoding) = match config {
@@ -43,7 +43,5 @@ pub fn get_local_signers_from_config(
             };
             Ok(LocalSigner::new(&pkb)?)
         })
-        .collect::<anyhow::Result<Vec<LocalSigner>>>()?;
-
-    Ok(signers)
+        .collect()
 }
