@@ -1,16 +1,13 @@
+use crate::config::Config;
 use crate::config::signer::local::LocalSignerConfig::PrivateKey;
 use crate::config::signer::local::{Encoding, LocalSignerConfig};
-use crate::config::{Config, default_config_path};
 use crate::signer::local::LocalSigner;
 use base64::Engine;
 use std::env;
 use std::path::PathBuf;
 
-pub fn get_config(path: Option<PathBuf>) -> anyhow::Result<Config> {
-    let config_path = path
-        .or_else(default_config_path)
-        .ok_or(anyhow::anyhow!("unable to get default config path"))?;
-    Ok(toml::de::from_str(&std::fs::read_to_string(&config_path)?)?)
+pub fn get_config(path: PathBuf) -> anyhow::Result<Config> {
+    Ok(toml::de::from_str(&std::fs::read_to_string(&path)?)?)
 }
 
 #[cfg(feature = "local")]

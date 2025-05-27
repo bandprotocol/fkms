@@ -1,6 +1,7 @@
 use crate::commands::config::ConfigArgs;
 use crate::commands::key::KeyArgs;
 use crate::commands::start::start;
+use crate::config::default_config_path;
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
@@ -22,8 +23,8 @@ pub enum Command {
     Config(ConfigArgs),
     Key(KeyArgs),
     Start {
-        #[arg(short, long, global = true)]
-        path: Option<PathBuf>,
+        #[arg(short, long, default_value = default_config_path().into_os_string())]
+        path: PathBuf,
     },
 }
 

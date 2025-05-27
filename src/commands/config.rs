@@ -13,9 +13,9 @@ pub struct ConfigArgs {
 #[derive(Subcommand)]
 pub enum ConfigCommand {
     Init {
-        /// Path to the config file. Defaults to $HOME/.fkms/config.toml
-        #[arg(short, long, global = true)]
-        path: Option<PathBuf>,
+        /// Path to the config file.
+        #[arg(short, long, default_value = default_config_path().into_os_string())]
+        path: PathBuf,
 
         /// Force overwrite of an existing config file
         #[arg(short, long = "override")]
@@ -23,9 +23,9 @@ pub enum ConfigCommand {
     },
 
     Validate {
-        /// Path to the config file. Defaults to $HOME/.fkms/config.toml
-        #[arg(short, long, global = true)]
-        path: Option<PathBuf>,
+        /// Path to the config file.
+        #[arg(short, long, default_value = default_config_path().into_os_string())]
+        path: PathBuf,
     },
 }
 
@@ -38,35 +38,27 @@ impl ConfigCommand {
     }
 }
 
-fn initialize_config(path: Option<PathBuf>, override_: bool) -> anyhow::Result<()> {
-    let config_path = path
-        .or_else(default_config_path)
-        .ok_or(anyhow::anyhow!("unable to get default config path"))?;
-
-    if config_path.exists() && !override_ {
+fn initialize_config(path: PathBuf, override_: bool) -> anyhow::Result<()> {
+    if path.exists() && !override_ {
         return Err(anyhow!(
             "Config file already exists. Use --override to overwrite."
         ));
     }
 
     // Create the config directory if it doesn't exist
-    if let Some(parent) = config_path.parent() {
+    if let Some(parent) = path.parent() {
         create_dir_all(parent)?;
     }
 
     // Write default config to file
     let config = Config::default();
-    write(config_path, toml::to_string(&config)?)?;
+    write(path, toml::to_string(&config)?)?;
     Ok(())
 }
 
-fn validate_config(path: Option<PathBuf>) -> anyhow::Result<()> {
-    let config_path = path
-        .or_else(default_config_path)
-        .ok_or(anyhow::anyhow!("unable to get default config path"))?;
-
-    if config_path.exists() {
-        let _: Config = toml::de::from_str(&std::fs::read_to_string(config_path)?)?;
+fn validate_config(path: PathBuf) -> anyhow::Result<()> {
+    if path.exists() {
+        let _: Config = toml::de::from_str(&std::fs::read_to_string(path)?)?;
         println!("Config file is valid");
         Ok(())
     } else {

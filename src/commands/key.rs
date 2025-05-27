@@ -1,6 +1,6 @@
 use crate::commands::utils::{get_config, get_local_signers_from_config};
-use crate::signer::Signer;
-use crate::util::evm_address_from_pub_key;
+use crate::config::default_config_path;
+use crate::signer::{EvmSigner, Signer};
 use clap::{Args, Subcommand};
 use std::path::PathBuf;
 
@@ -14,9 +14,9 @@ pub struct KeyArgs {
 pub enum KeyCommand {
     /// List all keys
     List {
-        /// Path to the config file. Defaults to $HOME/.fkms/config.toml
-        #[arg(short, long, global = true)]
-        path: Option<PathBuf>,
+        /// Path to the config file.
+        #[arg(short, long, default_value = default_config_path().into_os_string())]
+        path: PathBuf,
     },
 }
 
@@ -28,7 +28,7 @@ impl KeyCommand {
     }
 }
 
-fn list_keys(path: Option<PathBuf>) -> anyhow::Result<()> {
+fn list_keys(path: PathBuf) -> anyhow::Result<()> {
     let config = get_config(path)?;
 
     // only run this if the local feature is enabled
@@ -39,12 +39,14 @@ fn list_keys(path: Option<PathBuf>) -> anyhow::Result<()> {
         for local_signer in local_signers {
             let pk = local_signer.public_key();
             println!("Public Key: {}", hex::encode(pk));
-            println!("Address: {}", evm_address_from_pub_key(pk));
+            println!("Address: {}", local_signer.evm_address());
         }
     }
 
     #[cfg(feature = "aws")]
-    {}
+    {
+        // TODO: implement
+    }
 
     Ok(())
 }

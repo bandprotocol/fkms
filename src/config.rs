@@ -15,9 +15,12 @@ pub struct Config {
     pub logging: LoggingConfig,
 }
 
-pub fn default_config_path() -> Option<PathBuf> {
-    dirs::home_dir().map(|mut path| {
-        path.push(".fkms/config.toml");
-        path
-    })
+pub fn default_config_path() -> PathBuf {
+    // unwrap here as we expect all systems to have home_dir set
+    dirs::home_dir()
+        .map(|mut path| {
+            path.push(".fkms/config.toml");
+            path
+        })
+        .expect("unable to find $HOME")
 }

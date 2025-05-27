@@ -6,7 +6,7 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 use tonic::transport::Server;
 
-pub async fn start(path: Option<PathBuf>) -> anyhow::Result<()> {
+pub async fn start(path: PathBuf) -> anyhow::Result<()> {
     let config = get_config(path)?;
     let mut builder = ServerBuilder::default();
 

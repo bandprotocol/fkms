@@ -4,7 +4,6 @@ use std::collections::HashMap;
 
 pub mod builder;
 pub mod evm;
-mod utils;
 
 pub struct Server {
     evm_signers: HashMap<String, Box<dyn Signer<ecdsa::Signature> + 'static>>,
