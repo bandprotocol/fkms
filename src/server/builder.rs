@@ -11,8 +11,7 @@ pub struct ServerBuilder {
 impl ServerBuilder {
     pub fn with_evm_signer<T>(mut self, signer: T) -> Self
     where
-        T: Signer<ecdsa::Signature>,
-        T: EvmSigner,
+        T: Signer<ecdsa::Signature> + EvmSigner,
     {
         self.evm_signers.insert(
             signer.evm_address(),
