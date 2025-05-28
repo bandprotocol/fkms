@@ -1,4 +1,4 @@
-use crate::signer::provider::SigningProvider;
+use crate::signer::Signer;
 use aws_config::SdkConfig;
 use aws_sdk_kms::Client;
 use aws_sdk_kms::primitives::Blob;
@@ -6,13 +6,13 @@ use k256::ecdsa::{self, VerifyingKey};
 use k256::elliptic_curve::sec1::ToEncodedPoint;
 use k256::pkcs8::DecodePublicKey;
 
-pub struct AwsKmsSigningProvider {
+pub struct AwsSigner {
     client: Client,
     key_id: String,
     ecsda_public_key: Vec<u8>,
 }
 
-impl AwsKmsSigningProvider {
+impl AwsSigner {
     pub async fn new(config: &SdkConfig, key_id: String) -> Result<Self, anyhow::Error> {
         let client = Client::new(config);
 
@@ -58,7 +58,7 @@ impl AwsKmsSigningProvider {
 }
 
 #[async_trait::async_trait]
-impl SigningProvider<ecdsa::Signature> for AwsKmsSigningProvider {
+impl Signer<ecdsa::Signature> for AwsSigner {
     async fn sign(&self, message: &[u8]) -> Result<ecdsa::Signature, anyhow::Error> {
         self.sign_ecsda(message).await
     }

@@ -1,25 +1,23 @@
 use crate::server::Server;
-use crate::server::utils::public_key_to_evm_address;
-use crate::signer::provider::SigningProvider;
+use crate::signer::{EvmSigner, Signer};
 use k256::ecdsa;
 use std::collections::HashMap;
 
 #[derive(Default)]
 pub struct ServerBuilder {
-    evm_signers: HashMap<String, Box<dyn SigningProvider<ecdsa::Signature> + 'static>>,
+    evm_signers: HashMap<String, Box<dyn Signer<ecdsa::Signature> + 'static>>,
 }
 
 impl ServerBuilder {
-    pub fn with_evm_signer<T>(mut self, signer: T) -> anyhow::Result<Self>
+    pub fn with_evm_signer<T>(mut self, signer: T) -> Self
     where
-        T: SigningProvider<ecdsa::Signature>,
+        T: Signer<ecdsa::Signature> + EvmSigner,
     {
-        let address = public_key_to_evm_address(signer.public_key());
         self.evm_signers.insert(
-            address,
-            Box::new(signer) as Box<dyn SigningProvider<ecdsa::Signature>>,
+            signer.evm_address(),
+            Box::new(signer) as Box<dyn Signer<ecdsa::Signature>>,
         );
-        Ok(self)
+        self
     }
 
     pub fn build(self) -> Server {
