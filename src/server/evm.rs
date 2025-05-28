@@ -3,8 +3,6 @@ use crate::proto::kms::v1::{
     GetSignerAddressesRequest, GetSignerAddressesResponse, SignEvmRequest, SignEvmResponse,
 };
 use crate::server::Server;
-use crate::signer::signature::Signature;
-use prost::alloc::vec::Vec as ProstVec;
 use sha3::Digest;
 use tonic::{Request, Response, Status};
 
@@ -21,9 +19,17 @@ impl KmsEvmService for Server {
                     .sign(&sha3::Keccak256::digest(&sign_evm_request.message))
                     .await
                 {
-                    Ok(signature) => {
+                    Ok((signature, v)) => {
+                        let (r, s) = signature.split_bytes();
+
+                        let mut eth_signature = Vec::with_capacity(65);
+                        eth_signature.extend_from_slice(r.as_slice());
+                        eth_signature.extend_from_slice(s.as_slice());
+
+                        eth_signature.push(v.to_byte());
+
                         let response = SignEvmResponse {
-                            signature: ProstVec::from(signature.into_vec().as_slice()),
+                            signature: eth_signature,
                         };
                         Ok(Response::new(response))
                     }

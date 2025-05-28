@@ -6,5 +6,5 @@ pub mod builder;
 pub mod evm;
 
 pub struct Server {
-    evm_signers: HashMap<String, Box<dyn Signer<ecdsa::Signature> + 'static>>,
+    evm_signers: HashMap<String, Box<dyn Signer<ecdsa::Signature, ecdsa::RecoveryId> + 'static>>,
 }

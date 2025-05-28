@@ -1,7 +1,6 @@
 use crate::signer::Signer;
 use k256::ecdsa;
 use k256::ecdsa::SigningKey;
-use k256::ecdsa::signature::Signer as EcdsaSigner;
 use k256::elliptic_curve::sec1::ToEncodedPoint;
 
 pub struct LocalSigner {
@@ -25,8 +24,11 @@ impl LocalSigner {
         })
     }
 
-    fn sign_ecdsa(&self, message: &[u8]) -> ecdsa::Signature {
-        self.signing_key.sign(message)
+    fn sign_ecdsa(
+        &self,
+        message: &[u8],
+    ) -> Result<(ecdsa::Signature, ecdsa::RecoveryId), ecdsa::Error> {
+        self.signing_key.sign_prehash_recoverable(message)
     }
 
     fn ecsda_public_key(&self) -> &[u8] {
@@ -35,9 +37,9 @@ impl LocalSigner {
 }
 
 #[async_trait::async_trait]
-impl Signer<ecdsa::Signature> for LocalSigner {
-    async fn sign(&self, message: &[u8]) -> anyhow::Result<ecdsa::Signature> {
-        Ok(self.sign_ecdsa(message))
+impl Signer<ecdsa::Signature, ecdsa::RecoveryId> for LocalSigner {
+    async fn sign(&self, message: &[u8]) -> anyhow::Result<(ecdsa::Signature, ecdsa::RecoveryId)> {
+        Ok(self.sign_ecdsa(message)?)
     }
 
     fn public_key(&self) -> &[u8] {
@@ -47,6 +49,8 @@ impl Signer<ecdsa::Signature> for LocalSigner {
 
 #[cfg(test)]
 mod test {
+    use k256::sha2::Digest;
+    use sha3::Keccak256;
     use crate::signer::local::LocalSigner;
 
     #[test]
@@ -55,8 +59,8 @@ mod test {
             .unwrap();
         let signer = LocalSigner::new(&pk).unwrap();
         let message = b"Hello, world!";
-        let signature = hex::encode(signer.sign_ecdsa(message).to_bytes());
-        let expected = "a09edc400231f09d7d45481a4a5aee58e2d9e194e28cb9a42bbfed6a46735620038597c0afdbb500cabd87a16305ef19c7df944d214b63379689f0ad2ae5dc71";
+        let signature = hex::encode(signer.sign_ecdsa(&Keccak256::digest(message)).unwrap().0.to_bytes());
+        let expected = "351ce606456376c70913430ab2eabd76e3e6e6b7898fb01422e31cbffe2cf55b5a1d67d3a35367879e4983d50bdfcdc0cd052b8ec30edbaa47dcfe36585adf47";
 
         assert_eq!(signature, expected);
     }

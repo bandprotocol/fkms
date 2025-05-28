@@ -5,17 +5,17 @@ use std::collections::HashMap;
 
 #[derive(Default)]
 pub struct ServerBuilder {
-    evm_signers: HashMap<String, Box<dyn Signer<ecdsa::Signature> + 'static>>,
+    evm_signers: HashMap<String, Box<dyn Signer<ecdsa::Signature, ecdsa::RecoveryId> + 'static>>,
 }
 
 impl ServerBuilder {
     pub fn with_evm_signer<T>(mut self, signer: T) -> Self
     where
-        T: Signer<ecdsa::Signature> + EvmSigner,
+        T: Signer<ecdsa::Signature, ecdsa::RecoveryId> + EvmSigner,
     {
         self.evm_signers.insert(
             signer.evm_address(),
-            Box::new(signer) as Box<dyn Signer<ecdsa::Signature>>,
+            Box::new(signer) as Box<dyn Signer<ecdsa::Signature, ecdsa::RecoveryId> + 'static>,
         );
         self
     }
