@@ -1,11 +1,14 @@
 use crate::signer::signature::Signature;
 use k256::ecdsa;
-use k256::ecdsa::signature::SignatureEncoding;
 
 impl Signature for (ecdsa::Signature, ecdsa::RecoveryId) {
     fn into_vec(self) -> Vec<u8> {
-        let mut sig = self.0.to_der().to_vec();
+        let (r, s) = self.0.split_bytes();
+        let mut sig = Vec::with_capacity(65);
+        sig.extend_from_slice(&r);
+        sig.extend_from_slice(&s);
         sig.push(self.1.to_byte());
         sig
+
     }
 }
