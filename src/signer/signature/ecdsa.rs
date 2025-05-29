@@ -9,6 +9,5 @@ impl Signature for (ecdsa::Signature, ecdsa::RecoveryId) {
         sig.extend_from_slice(&s);
         sig.push(self.1.to_byte());
         sig
-
     }
 }
