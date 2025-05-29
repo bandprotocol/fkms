@@ -33,7 +33,10 @@ impl Command {
         match self {
             Command::Config(config_args) => config_args.command.run(),
             Command::Key(key_args) => key_args.command.run(),
-            Command::Start { path } => start(path).await,
+            Command::Start { path } => {
+                println!("{:?}", path);
+                start(path).await
+            }
         }
     }
 }

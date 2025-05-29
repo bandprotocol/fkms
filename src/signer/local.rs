@@ -37,7 +37,7 @@ impl LocalSigner {
 }
 
 #[async_trait::async_trait]
-impl Signer<ecdsa::Signature, ecdsa::RecoveryId> for LocalSigner {
+impl Signer<(ecdsa::Signature, ecdsa::RecoveryId)> for LocalSigner {
     async fn sign(&self, message: &[u8]) -> anyhow::Result<(ecdsa::Signature, ecdsa::RecoveryId)> {
         Ok(self.sign_ecdsa(message)?)
     }
@@ -49,9 +49,9 @@ impl Signer<ecdsa::Signature, ecdsa::RecoveryId> for LocalSigner {
 
 #[cfg(test)]
 mod test {
+    use crate::signer::local::LocalSigner;
     use k256::sha2::Digest;
     use sha3::Keccak256;
-    use crate::signer::local::LocalSigner;
 
     #[test]
     fn test_sign_ecdsa() {
@@ -59,7 +59,13 @@ mod test {
             .unwrap();
         let signer = LocalSigner::new(&pk).unwrap();
         let message = b"Hello, world!";
-        let signature = hex::encode(signer.sign_ecdsa(&Keccak256::digest(message)).unwrap().0.to_bytes());
+        let signature = hex::encode(
+            signer
+                .sign_ecdsa(&Keccak256::digest(message))
+                .unwrap()
+                .0
+                .to_bytes(),
+        );
         let expected = "351ce606456376c70913430ab2eabd76e3e6e6b7898fb01422e31cbffe2cf55b5a1d67d3a35367879e4983d50bdfcdc0cd052b8ec30edbaa47dcfe36585adf47";
 
         assert_eq!(signature, expected);

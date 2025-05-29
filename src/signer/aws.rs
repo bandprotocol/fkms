@@ -59,7 +59,7 @@ impl AwsSigner {
             .ok_or(anyhow::Error::msg("no signature found"))?;
 
         let signature = ecdsa::Signature::from_der(signature_blob.as_ref())?;
-        
+
         let digest = Keccak256::new_with_prefix(message);
         let recovery_id = find_recovery_id(digest, &signature);
         Ok((signature, recovery_id))
@@ -67,7 +67,7 @@ impl AwsSigner {
 }
 
 #[async_trait::async_trait]
-impl Signer<ecdsa::Signature, ecdsa::RecoveryId> for AwsSigner {
+impl Signer<(ecdsa::Signature, ecdsa::RecoveryId)> for AwsSigner {
     async fn sign(
         &self,
         message: &[u8],

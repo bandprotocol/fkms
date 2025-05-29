@@ -1,4 +1,4 @@
-use crate::signer::signature::{RecoveryId, Signature};
+use crate::signer::signature::Signature;
 use k256::ecdsa;
 use k256::sha2::Digest;
 
@@ -9,10 +9,10 @@ pub mod local;
 pub mod signature;
 
 #[async_trait::async_trait]
-pub trait Signer<S: Signature, V: RecoveryId>: Send + Sync + 'static {
+pub trait Signer<S: Signature>: Send + Sync + 'static {
     // TODO: Change to use custom error instead of anyhow.
     // For purpose of development anyhow will be used until other providers are complete
-    async fn sign(&self, message: &[u8]) -> anyhow::Result<(S, V)>;
+    async fn sign(&self, message: &[u8]) -> anyhow::Result<S>;
 
     fn public_key(&self) -> &[u8];
 }
@@ -23,7 +23,7 @@ pub trait EvmSigner: Send + Sync + 'static {
 
 impl<T> EvmSigner for T
 where
-    T: Signer<ecdsa::Signature, ecdsa::RecoveryId>,
+    T: Signer<(ecdsa::Signature, ecdsa::RecoveryId)>,
 {
     fn evm_address(&self) -> String {
         public_key_to_evm_address(self.public_key())
