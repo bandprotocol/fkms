@@ -59,9 +59,9 @@ impl AwsSigner {
             .ok_or(anyhow::Error::msg("no signature found"))?;
 
         let signature = ecdsa::Signature::from_der(signature_blob.as_ref())?;
-        // unwrap here as this should never fail
+        
         let digest = Keccak256::new_with_prefix(message);
-        let recovery_id = find_recovery_id(digest, signature);
+        let recovery_id = find_recovery_id(digest, &signature);
         Ok((signature, recovery_id))
     }
 }
@@ -80,9 +80,10 @@ impl Signer<ecdsa::Signature, ecdsa::RecoveryId> for AwsSigner {
     }
 }
 
-fn find_recovery_id<D: Digest>(digest: D, signature: ecdsa::Signature) -> ecdsa::RecoveryId {
+fn find_recovery_id<D: Digest>(digest: D, signature: &ecdsa::Signature) -> ecdsa::RecoveryId {
+    // unwrap here as this should never fail
     let recovery_id_0 = ecdsa::RecoveryId::from_byte(0).unwrap();
-    if VerifyingKey::recover_from_digest(digest, &signature, recovery_id_0).is_ok() {
+    if VerifyingKey::recover_from_digest(digest, signature, recovery_id_0).is_ok() {
         recovery_id_0
     } else {
         ecdsa::RecoveryId::from_byte(1).unwrap()
