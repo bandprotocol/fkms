@@ -7,6 +7,7 @@ use k256::elliptic_curve::sec1::ToEncodedPoint;
 use k256::pkcs8::DecodePublicKey;
 use k256::sha2::Digest;
 use sha3::Keccak256;
+use crate::signer::signature::ecdsa::EcdsaSignature;
 
 pub struct AwsSigner {
     client: Client,
@@ -44,7 +45,7 @@ impl AwsSigner {
     pub async fn sign_ecsda(
         &self,
         message: &[u8],
-    ) -> Result<(ecdsa::Signature, ecdsa::RecoveryId), anyhow::Error> {
+    ) -> Result<EcdsaSignature, anyhow::Error> {
         let sign_output = self
             .client
             .sign()
@@ -67,11 +68,11 @@ impl AwsSigner {
 }
 
 #[async_trait::async_trait]
-impl Signer<(ecdsa::Signature, ecdsa::RecoveryId)> for AwsSigner {
+impl Signer<EcdsaSignature> for AwsSigner {
     async fn sign(
         &self,
         message: &[u8],
-    ) -> Result<(ecdsa::Signature, ecdsa::RecoveryId), anyhow::Error> {
+    ) -> Result<EcdsaSignature, anyhow::Error> {
         self.sign_ecsda(message).await
     }
 
