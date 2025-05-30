@@ -2,6 +2,7 @@ use crate::signer::Signer;
 use k256::ecdsa;
 use k256::ecdsa::SigningKey;
 use k256::elliptic_curve::sec1::ToEncodedPoint;
+use crate::signer::signature::ecdsa::EcdsaSignature;
 
 pub struct LocalSigner {
     signing_key: SigningKey,
@@ -27,7 +28,7 @@ impl LocalSigner {
     fn sign_ecdsa(
         &self,
         message: &[u8],
-    ) -> Result<(ecdsa::Signature, ecdsa::RecoveryId), ecdsa::Error> {
+    ) -> Result<EcdsaSignature, ecdsa::Error> {
         self.signing_key.sign_prehash_recoverable(message)
     }
 
@@ -37,8 +38,8 @@ impl LocalSigner {
 }
 
 #[async_trait::async_trait]
-impl Signer<(ecdsa::Signature, ecdsa::RecoveryId)> for LocalSigner {
-    async fn sign(&self, message: &[u8]) -> anyhow::Result<(ecdsa::Signature, ecdsa::RecoveryId)> {
+impl Signer<EcdsaSignature> for LocalSigner {
+    async fn sign(&self, message: &[u8]) -> anyhow::Result<EcdsaSignature> {
         Ok(self.sign_ecdsa(message)?)
     }
 
