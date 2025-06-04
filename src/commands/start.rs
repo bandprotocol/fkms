@@ -15,7 +15,7 @@ pub async fn start(path: PathBuf) -> anyhow::Result<()> {
         let signer_configs = &config.signer_config.local_signer_configs;
         let signers = get_local_signers_from_config(signer_configs)?;
         for signer in signers {
-            builder = builder.with_evm_signer(signer);
+            builder.with_evm_signer(signer);
         }
     }
 
