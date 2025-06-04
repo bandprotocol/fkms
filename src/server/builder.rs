@@ -1,8 +1,7 @@
 use crate::server::Server;
-use crate::signer::{EvmSigner, Signer};
-use k256::ecdsa;
-use std::collections::HashMap;
 use crate::signer::signature::ecdsa::EcdsaSignature;
+use crate::signer::{EvmSigner, Signer};
+use std::collections::HashMap;
 
 #[derive(Default)]
 pub struct ServerBuilder {

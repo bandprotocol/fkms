@@ -1,7 +1,6 @@
 use crate::signer::signature::Signature;
-use k256::ecdsa;
-use k256::sha2::Digest;
 use crate::signer::signature::ecdsa::EcdsaSignature;
+use k256::sha2::Digest;
 
 #[cfg(feature = "aws")]
 pub mod aws;
