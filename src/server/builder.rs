@@ -9,7 +9,7 @@ pub struct ServerBuilder {
 }
 
 impl ServerBuilder {
-    pub fn with_evm_signer<T>(mut self, signer: T) -> Self
+    pub fn with_evm_signer<T>(&mut self, signer: T)
     where
         T: Signer<EcdsaSignature> + EvmSigner,
     {
@@ -17,7 +17,6 @@ impl ServerBuilder {
             signer.evm_address(),
             Box::new(signer) as Box<dyn Signer<EcdsaSignature> + 'static>,
         );
-        self
     }
 
     pub fn build(self) -> Server {
