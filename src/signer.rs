@@ -1,5 +1,5 @@
 use crate::signer::signature::Signature;
-use k256::ecdsa;
+use crate::signer::signature::ecdsa::EcdsaSignature;
 use k256::sha2::Digest;
 
 #[cfg(feature = "aws")]
@@ -23,7 +23,7 @@ pub trait EvmSigner: Send + Sync + 'static {
 
 impl<T> EvmSigner for T
 where
-    T: Signer<ecdsa::Signature>,
+    T: Signer<EcdsaSignature>,
 {
     fn evm_address(&self) -> String {
         public_key_to_evm_address(self.public_key())
