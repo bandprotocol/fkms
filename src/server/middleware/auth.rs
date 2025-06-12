@@ -6,28 +6,33 @@ use http::{Request, Response};
 use tonic::Status;
 use tower::{Layer, Service};
 
-use crate::server::middleware::store::Store;
+use crate::server::middleware::auth::store::Store;
 
-const METADATA_API_KEY: &str = "api-key";
+pub mod store;
+
+const DEFAULT_HEADER_API_KEY: &str = "api-key";
 
 #[derive(Debug, Clone, Default)]
-pub struct AuthMiddlewareLayer<S> {
+pub struct AuthMiddlewareLayer<S: Store> {
     pub store: S,
+    pub header_api_key: String
 }
 
-impl<S> AuthMiddlewareLayer<S> {
-    pub fn new(store: S) -> Self {
-        Self { store }
+impl<S: Store> AuthMiddlewareLayer<S> {
+    pub fn new(store: S, header_api_key: Option<String>) -> Self {
+        let header_api_key = header_api_key.unwrap_or_else(|| DEFAULT_HEADER_API_KEY.to_string()); 
+        Self { store, header_api_key }
     }
 }
 
-impl<S1, S2: Clone> Layer<S1> for AuthMiddlewareLayer<S2> {
+impl<S1, S2: Store> Layer<S1> for AuthMiddlewareLayer<S2> {
     type Service = AuthMiddleware<S1, S2>;
 
     fn layer(&self, service: S1) -> Self::Service {
         AuthMiddleware {
             inner: service,
             store: self.store.clone(),
+            header_api_key: self.header_api_key.clone(),
         }
     }
 }
@@ -36,6 +41,7 @@ impl<S1, S2: Clone> Layer<S1> for AuthMiddlewareLayer<S2> {
 pub struct AuthMiddleware<S1, S2> {
     inner: S1,
     store: S2,
+    header_api_key: String,
 }
 
 type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
@@ -62,15 +68,15 @@ where
         let mut inner = std::mem::replace(&mut self.inner, cloned_inner);
 
         let store = self.store.clone();
+        let header_api_key = self.header_api_key.clone();
 
         Box::pin(async move {
             let api_key = req
                 .headers()
-                .get(METADATA_API_KEY)
+                .get(header_api_key)
                 .ok_or_else(|| Status::unauthenticated("Missing API key"))?
                 .to_str()
-                .map_err(|e| Status::internal(e.to_string()))?
-                .to_string();
+                .map_err(|e| Status::internal(e.to_string()))?;
 
             store.verify_api_key(api_key).await.map_err(|e| {
                 Status::unauthenticated(format!("API key verification failed: {}", e))

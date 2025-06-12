@@ -1,2 +1,2 @@
+#[cfg(feature = "middleware")]
 pub mod auth;
-pub mod store;

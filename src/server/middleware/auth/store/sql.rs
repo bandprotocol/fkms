@@ -22,10 +22,10 @@ where
 #[async_trait::async_trait]
 impl<E: EntityTrait> Store for SqlDb<E>
 where
-    <<E as EntityTrait>::PrimaryKey as PrimaryKeyTrait>::ValueType: From<String>,
+    for <'a> <<E as EntityTrait>::PrimaryKey as PrimaryKeyTrait>::ValueType: From<&'a str>,
 {
     type Error = DbErr;
-    async fn verify_api_key(&self, api_key: String) -> Result<(), Self::Error> {
+    async fn verify_api_key(&self, api_key: &str) -> Result<(), Self::Error> {
         E::find_by_id(api_key)
             .one(&self.db_conn)
             .await?
