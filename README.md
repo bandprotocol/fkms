@@ -50,7 +50,7 @@ host = "127.0.0.1"
 port = 50051
 
 [logging]
-log_level = "info"
+log_level = ""
 
 [signer_config]
 
