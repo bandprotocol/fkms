@@ -17,10 +17,21 @@ Before building and running `fkms`, ensure the following dependency is installed
    git clone https://github.com/bandprotocol/fkms.git
    cd fkms
    ```
-2. **Build the binary:**
-   ```sh
-   cargo install --path .
-   ```
+2. **Build and install the binary:**
+
+    By default, the `fkms` binary is compiled with the local feature enabled, supporting local key management. If you wish to enable additional features (such as AWS KMS integration), you can specify them explicitly during installation:
+    - Default (local signer only)
+      ```sh
+      cargo install --path .
+      ```
+    - With AWS KMS support:
+      ```sh
+      cargo install --path . --features aws
+      ```
+    - Both local and AWS KMS support:
+      ```sh
+      cargo install --path . --features local,aws
+      ```
    This will compile and install the fkms executable 
 
 ## Configuration
