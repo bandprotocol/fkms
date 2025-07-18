@@ -4,6 +4,12 @@
 
 `fkms` is a Key Management Service (KMS) written in Rust, designed to sign transactions originating from [Falcon](https://github.com/bandprotocol/falcon). It provides secure key management and signing capabilities for EVM-compatible blockchains, supporting both local and AWS KMS-backed signers. The service exposes a gRPC API for signing and key management operations, and is designed to be easily configurable and extensible with middleware (e.g., authentication).
 
+## Prerequisites
+Before building and running `fkms`, ensure the following dependency is installed:
+- [Rust](https://www.rust-lang.org/tools/install)
+
+
+
 ## Installation
 
 1. **Clone the repository:**
