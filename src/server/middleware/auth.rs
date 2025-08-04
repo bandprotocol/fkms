@@ -1,11 +1,19 @@
 use std::error::Error;
-use std::pin::Pin;
+use std::pin::{Pin, pin};
 use std::task::{Context, Poll};
 
 use http::{Request, Response};
-use tonic::Status;
+use prost::Message;
+use tokio_stream::{Stream, StreamExt};
+use tonic::body::Body;
+use tonic::codec::Streaming;
+use tonic::codec::{Codec, CompressionEncoding, ProstCodec};
+use tonic::metadata::MetadataMap;
+use tonic::{IntoRequest, Request as TonicRequest};
+use tonic::{Status, body};
 use tower::{Layer, Service};
 
+use crate::proto::kms::v1::{SignEvmRequest, SignEvmResponse};
 use crate::server::middleware::auth::store::Store;
 
 pub mod store;
@@ -15,13 +23,16 @@ const DEFAULT_HEADER_API_KEY: &str = "api-key";
 #[derive(Debug, Clone, Default)]
 pub struct AuthMiddlewareLayer<S: Store> {
     pub store: S,
-    pub header_api_key: String
+    pub header_api_key: String,
 }
 
 impl<S: Store> AuthMiddlewareLayer<S> {
     pub fn new(store: S, header_api_key: Option<String>) -> Self {
-        let header_api_key = header_api_key.unwrap_or_else(|| DEFAULT_HEADER_API_KEY.to_string()); 
-        Self { store, header_api_key }
+        let header_api_key = header_api_key.unwrap_or_else(|| DEFAULT_HEADER_API_KEY.to_string());
+        Self {
+            store,
+            header_api_key,
+        }
     }
 }
 
@@ -51,7 +62,8 @@ where
     S1: Service<Request<ReqBody>, Response = Response<ResBody>> + Clone + Send + 'static,
     S1::Future: Send + 'static,
     S1::Error: Into<Box<dyn Error + Send + Sync>>,
-    ReqBody: Send + 'static,
+    ReqBody: Send + 'static + Body,
+    ReqBody::Error: Into<Box<dyn std::error::Error + Send + Sync>>,
     S2: Store,
 {
     type Response = S1::Response;
@@ -71,18 +83,38 @@ where
         let header_api_key = self.header_api_key.clone();
 
         Box::pin(async move {
-            let api_key = req
-                .headers()
-                .get(header_api_key)
-                .ok_or_else(|| Status::unauthenticated("Missing API key"))?
-                .to_str()
-                .map_err(|e| Status::internal(e.to_string()))?;
+            let mut req: Request<ReqBody> = req;
+            let request_body = req.body_mut();
+            let body = request_body.data();
 
-            store.verify_api_key(api_key).await.map_err(|e| {
-                Status::unauthenticated(format!("API key verification failed: {}", e))
-            })?;
+            // let (parts, body) = req.into_parts();
 
-            let response = inner.call(req).await.map_err(Into::into)?;
+            let mut stream = pin!(Streaming::new_request(
+                ProstCodec::<SignEvmResponse, SignEvmRequest>::default().decoder(),
+                *body,
+                /* no compression: */ None::<CompressionEncoding>,
+                /* default max message size: */ None,
+            ));
+
+            let message = stream
+                .try_next()
+                .await?
+                .ok_or_else(|| Status::internal("Missing request message."))?;
+
+            // let api_key = parts
+            //     .headers
+            //     .get(header_api_key)
+            //     .ok_or_else(|| Status::unauthenticated("Missing API key"))?
+            //     .to_str()
+            //     .map_err(|e| Status::internal(e.to_string()))?;
+
+            // store.verify_api_key(api_key).await.map_err(|e| {
+            //     Status::unauthenticated(format!("API key verification failed: {}", e))
+            // })?;
+
+            let new_req = Request::from_parts(parts, message);
+
+            let response = inner.call(new_req).await.map_err(Into::into)?;
             Ok(response)
         })
     }
