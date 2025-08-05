@@ -16,9 +16,11 @@ impl KmsEvmService for Server {
         request: Request<SignEvmRequest>,
     ) -> Result<Response<SignEvmResponse>, Status> {
         let sign_evm_request = request.into_inner();
-        info!("got sign_evm request: {:?}", sign_evm_request);
         match self.evm_signers.get(&sign_evm_request.address) {
             Some(signer) => {
+                if let Some(price_verifier) = &self.price_verifier {
+                    let _ = price_verifier.verify_message(&sign_evm_request.message).await?;
+                }
                 match signer
                     .sign(&sha3::Keccak256::digest(&sign_evm_request.message))
                     .await
