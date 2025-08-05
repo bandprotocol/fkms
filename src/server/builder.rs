@@ -1,4 +1,4 @@
-use crate::server::verifier::Verifier;
+use crate::server::pre_sign::PreSignHook;
 use crate::server::Server;
 use crate::signer::signature::ecdsa::EcdsaSignature;
 use crate::signer::{EvmSigner, Signer};
@@ -7,7 +7,7 @@ use std::collections::HashMap;
 #[derive(Default)]
 pub struct ServerBuilder {
     evm_signers: HashMap<String, Box<dyn Signer<EcdsaSignature> + 'static>>,
-    price_verifier: Option<Box<dyn Verifier>>,
+    pre_sign_hooks: Vec<Box<dyn PreSignHook>>,
 }
 
 impl ServerBuilder {
@@ -21,17 +21,17 @@ impl ServerBuilder {
         );
     }
 
-    pub fn with_verifier<V>(&mut self, verifier: V)
+    pub fn with_pre_sign_hook<P>(&mut self, pre_sign_hook: P)
     where
-        V: Verifier,
+        P: PreSignHook,
     {
-        self.price_verifier = Some(Box::new(verifier));
+        self.pre_sign_hooks.push(Box::new(pre_sign_hook));
     }
 
     pub fn build(self) -> Server {
         Server {
             evm_signers: self.evm_signers,
-            price_verifier: self.price_verifier,
+            pre_sign_hooks: self.pre_sign_hooks,
         }
     }
 }

@@ -1,4 +1,4 @@
-use crate::server::verifier::Verifier;
+use crate::server::pre_sign::PreSignHook;
 use crate::signer::Signer;
 use crate::signer::signature::ecdsa::EcdsaSignature;
 use std::collections::HashMap;
@@ -6,9 +6,9 @@ use std::collections::HashMap;
 pub mod builder;
 pub mod evm;
 pub mod middleware;
-pub mod verifier;
+pub mod pre_sign;
 
 pub struct Server {
     evm_signers: HashMap<String, Box<dyn Signer<EcdsaSignature> + 'static>>,
-    price_verifier: Option<Box<dyn Verifier>>,
+    pre_sign_hooks: Vec<Box<dyn PreSignHook>>,
 }
