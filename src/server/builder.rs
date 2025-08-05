@@ -7,12 +7,12 @@ use std::collections::HashMap;
 #[derive(Default)]
 pub struct ServerBuilder {
     evm_signers: HashMap<String, Box<dyn Signer<EcdsaSignature> + 'static>>,
-    price_verifier: Option<Box<dyn Verifier + Send + Sync + 'static>>,
+    price_verifier: Option<Box<dyn Verifier>>,
 }
 
 impl ServerBuilder {
     pub fn with_evm_signer<T>(&mut self, signer: T)
-        where
+    where
         T: Signer<EcdsaSignature> + EvmSigner,
     {
         self.evm_signers.insert(
@@ -23,7 +23,7 @@ impl ServerBuilder {
 
     pub fn with_verifier<V>(&mut self, verifier: V)
     where
-        V: Verifier + Send + Sync + 'static,
+        V: Verifier,
     {
         self.price_verifier = Some(Box::new(verifier));
     }

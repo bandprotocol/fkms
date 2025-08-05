@@ -10,5 +10,5 @@ pub mod verifier;
 
 pub struct Server {
     evm_signers: HashMap<String, Box<dyn Signer<EcdsaSignature> + 'static>>,
-    price_verifier: Option<Box<dyn Verifier + Send + Sync + 'static>>,
+    price_verifier: Option<Box<dyn Verifier>>,
 }
