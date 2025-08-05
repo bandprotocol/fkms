@@ -16,7 +16,9 @@ impl KmsEvmService for Server {
         request: Request<SignEvmRequest>,
     ) -> Result<Response<SignEvmResponse>, Status> {
         let sign_evm_request = request.into_inner();
-        info!("got sign_evm request: {:?}", sign_evm_request);
+        for hook in &self.pre_sign_hooks {
+            hook.call(&sign_evm_request.message).await?;
+        }
         match self.evm_signers.get(&sign_evm_request.address) {
             Some(signer) => {
                 match signer
