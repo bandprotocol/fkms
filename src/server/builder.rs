@@ -10,10 +10,10 @@ pub struct ServerBuilder {
     price_verifier: Option<Box<dyn Verifier + Send + Sync + 'static>>,
 }
 
-impl ServerBuilder{
-    pub fn with_evm_signer<S>(&mut self, signer: S)
-    where
-        S: Signer<EcdsaSignature> + EvmSigner + 'static,
+impl ServerBuilder {
+    pub fn with_evm_signer<T>(&mut self, signer: T)
+        where
+        T: Signer<EcdsaSignature> + EvmSigner,
     {
         self.evm_signers.insert(
             signer.evm_address(),
