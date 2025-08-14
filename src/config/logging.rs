@@ -13,7 +13,7 @@ fn default_log_level() -> String {
 impl Default for LoggingConfig {
     fn default() -> Self {
         LoggingConfig {
-            log_level: default_log_level()
+            log_level: default_log_level(),
         }
     }
 }
