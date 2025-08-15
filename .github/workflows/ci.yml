@@ -47,4 +47,3 @@ jobs:
         protoc --version
     - uses: Swatinem/rust-cache@v2
     - run: cargo test --all-features --no-fail-fast
-  
