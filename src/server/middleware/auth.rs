@@ -15,13 +15,16 @@ const DEFAULT_HEADER_API_KEY: &str = "api-key";
 #[derive(Debug, Clone, Default)]
 pub struct AuthMiddlewareLayer<S: Store> {
     pub store: S,
-    pub header_api_key: String
+    pub header_api_key: String,
 }
 
 impl<S: Store> AuthMiddlewareLayer<S> {
     pub fn new(store: S, header_api_key: Option<String>) -> Self {
-        let header_api_key = header_api_key.unwrap_or_else(|| DEFAULT_HEADER_API_KEY.to_string()); 
-        Self { store, header_api_key }
+        let header_api_key = header_api_key.unwrap_or_else(|| DEFAULT_HEADER_API_KEY.to_string());
+        Self {
+            store,
+            header_api_key,
+        }
     }
 }
 

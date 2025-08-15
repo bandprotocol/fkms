@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use sea_orm::{entity::EntityTrait, DatabaseConnection, DbErr, PrimaryKeyTrait};
+use sea_orm::{DatabaseConnection, DbErr, PrimaryKeyTrait, entity::EntityTrait};
 
 use super::Store;
 
@@ -15,14 +15,17 @@ where
     <<E as EntityTrait>::PrimaryKey as PrimaryKeyTrait>::ValueType: From<String>,
 {
     pub fn new(db_conn: DatabaseConnection) -> Self {
-        Self { db_conn, _entity: PhantomData }
+        Self {
+            db_conn,
+            _entity: PhantomData,
+        }
     }
 }
 
 #[async_trait::async_trait]
 impl<E: EntityTrait> Store for SqlDb<E>
 where
-    for <'a> <<E as EntityTrait>::PrimaryKey as PrimaryKeyTrait>::ValueType: From<&'a str>,
+    for<'a> <<E as EntityTrait>::PrimaryKey as PrimaryKeyTrait>::ValueType: From<&'a str>,
 {
     type Error = DbErr;
     async fn verify_api_key(&self, api_key: &str) -> Result<(), Self::Error> {
