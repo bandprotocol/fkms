@@ -1,5 +1,5 @@
-use crate::proto::kms::v1::kms_evm_service_server::KmsEvmService;
-use crate::proto::kms::v1::{
+use crate::proto::fkms::v1::fkms_service_server::FkmsService;
+use crate::proto::fkms::v1::{
     GetSignerAddressesRequest, GetSignerAddressesResponse, SignEvmRequest, SignEvmResponse,
 };
 use crate::server::Server;
@@ -9,7 +9,7 @@ use tonic::{Request, Response, Status};
 use tracing::{error, info, instrument, warn};
 
 #[tonic::async_trait]
-impl KmsEvmService for Server {
+impl FkmsService for Server {
     #[instrument(skip(self, request))]
     async fn sign_evm(
         &self,

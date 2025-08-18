@@ -112,7 +112,15 @@ PRIVATE_KEY_1=abc123456789deadbeef...
 
 ## API
 
-The gRPC API is defined in [`proto/kms/v1/signer.proto`](proto/kms/v1/signer.proto):
+### Generate protobufs (Rust)
+The Rust server uses `tonic-build`. Rebuilding the project regenerates server/client code:
+
+```sh
+cargo clean
+cargo build
+```
+
+The gRPC API is defined in [`proto/fkms/v1/signer.proto`](proto/fkms/v1/signer.proto):
 
 - `SignEvm(SignEvmRequest)`: Sign a message with a given address
 - `GetSignerAddresses(GetSignerAddressesRequest)`: List available signer addresses

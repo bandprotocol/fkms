@@ -1,6 +1,6 @@
 use crate::commands::utils::{get_config, get_local_signers_from_config};
 use crate::proto;
-use crate::proto::kms::v1::kms_evm_service_server::KmsEvmServiceServer;
+use crate::proto::fkms::v1::fkms_service_server::FkmsServiceServer;
 use crate::server::builder::ServerBuilder;
 use crate::signer::EvmSigner;
 use std::net::SocketAddr;
@@ -36,7 +36,7 @@ pub async fn start(path: PathBuf) -> anyhow::Result<()> {
 
     let server = builder.build();
     let reflection_server = tonic_reflection::server::Builder::configure()
-        .register_encoded_file_descriptor_set(proto::kms::v1::FILE_DESCRIPTOR_SET)
+        .register_encoded_file_descriptor_set(proto::fkms::v1::FILE_DESCRIPTOR_SET)
         .build_v1()?;
 
     info!(
@@ -45,7 +45,7 @@ pub async fn start(path: PathBuf) -> anyhow::Result<()> {
     );
 
     Server::builder()
-        .add_service(KmsEvmServiceServer::new(server))
+        .add_service(FkmsServiceServer::new(server))
         .add_service(reflection_server)
         .serve(SocketAddr::from((config.server.host, config.server.port)))
         .await?;
