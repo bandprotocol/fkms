@@ -56,37 +56,34 @@ log_level = ""
 
 # Local signers using various sources
 [[signer_config.local_signer_configs]]
-type = "env"
+type = "private_key"
 env_variable = "PRIVATE_KEY_1"
 encoding = "hex"
 
 [[signer_config.local_signer_configs]]
-type = "file"
-path = "/path/to/private_key.txt"
-encoding = "base64"
-
-[[signer_config.local_signer_configs]]
-type = "private_key"
-private_key = "abcdef0123456789..."
-encoding = "hex"
+type         = "mnemonic"
+env_variable = "MNEMONIC_1"
+coin_type = 60
+account = 0
+index = 0
 ```
 
 ### Supported Local Signer Types
 
-| Type          | Description                                    | Required Fields           |
-| --------------| ---------------------------------------------- | --------------------------|
-| `env`         | Load private key from an environment  variable | `env_variable`, `encoding`|
-| `file`        | Load private key from a file path              | `path`, `encoding`        |
-| `private_key` | Use an inline private key                      | `private_key`, `encoding` |
+| Type          | Description                                    | Required Fields                                |
+| --------------| ---------------------------------------------- | -----------------------------------------------|
+| `private_key` | Load private key from an environment variable  | `env_variable`, `encoding`                     |
+| `mnemonic`    | Load mnemonic from an environment variable     | `env_variable`, `coin_type`, `account`, `index`|
 
 ## Encoding Options
 - `hex`: The key is encoded in hexadecimal (0-9, a-f)
 - `base64`: The key is base64-encoded
 
-> For type = `env`, you must define the environment variable in a `.env` file or via your shell environment.
+> Environment variable must be defined in a `.env` file or via  shell environment.
 > Example .env file:
 ```env
 PRIVATE_KEY_1=abc123456789deadbeef...
+MNEMONIC="test test test test test test test test test test test junk"
 ```
 
 ## Usage

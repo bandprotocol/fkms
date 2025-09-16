@@ -1,20 +1,17 @@
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum LocalSignerConfig {
-    Env {
+    PrivateKey {
         env_variable: String,
         encoding: Encoding,
     },
-    File {
-        path: PathBuf,
-        encoding: Encoding,
-    },
-    PrivateKey {
-        private_key: String,
-        encoding: Encoding,
+    Mnemonic {
+        env_variable: String,
+        coin_type: u32,
+        account: u32,
+        index: u32,
     },
 }
 
