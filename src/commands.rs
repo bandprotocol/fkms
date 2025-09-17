@@ -9,6 +9,7 @@ pub(crate) mod config;
 pub(crate) mod key;
 pub(crate) mod start;
 pub(crate) mod utils;
+pub use utils::get_local_signers_from_config;
 
 #[derive(Parser)]
 #[command(version, about, long_about = None, arg_required_else_help = true)]
