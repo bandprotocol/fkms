@@ -2,7 +2,7 @@
 
 ## Overview
 
-`fkms` is a Key Management Service (KMS) written in Rust, designed to sign transactions originating from [Falcon](https://github.com/bandprotocol/falcon). It provides secure key management and signing capabilities for EVM-compatible blockchains, supporting both local and AWS KMS-backed signers. The service exposes a gRPC API for signing and key management operations, and is designed to be easily configurable and extensible with middleware (e.g., authentication).
+`fkms` is a Key Management Service (KMS) written in Rust, designed to sign transactions originating from [Falcon](https://github.com/bandprotocol/falcon). It provides secure key management and signing capabilities for EVM-compatible blockchains and XRPL (secp256k1), supporting both local and AWS KMS-backed signers. The service exposes a gRPC API for signing and key management operations, and is designed to be easily configurable and extensible with middleware (e.g., authentication).
 
 ## Prerequisites
 Before building and running `fkms`, ensure the following dependency is installed:
@@ -119,13 +119,24 @@ cargo build
 
 The gRPC API is defined in [`proto/fkms/v1/signer.proto`](proto/fkms/v1/signer.proto):
 
-- `SignEvm(SignEvmRequest)`: Sign a message with a given address
-- `GetSignerAddresses(GetSignerAddressesRequest)`: List available signer addresses
+- `SignEvm(SignEvmRequest)`: Sign a message with a given address (EVM)
+- `SignXrpl(SignXrplRequest)`: Sign a message with a given address (XRPL)
+- `GetSignerAddresses(GetSignerAddressesRequest)`: List available signer addresses (EVM)
+- `GetXrplSignerAddresses(GetXrplSignerAddressesRequest)`: List available signer addresses (XRPL)
 
 ### Example: SignEvmRequest
 
 ```proto
 message SignEvmRequest {
+  string address = 1;
+  bytes message = 2;
+}
+```
+
+### Example: SignXrplRequest
+
+```proto
+message SignXrplRequest {
   string address = 1;
   bytes message = 2;
 }
@@ -138,6 +149,19 @@ message GetSignerAddressesResponse {
   repeated string addresses = 1;
 }
 ```
+
+### Example: GetXrplSignerAddressesResponse
+
+```proto
+message GetXrplSignerAddressesResponse {
+  repeated string addresses = 1;
+}
+```
+
+### XRPL Signing Notes
+
+- The server computes `SHA-256(message)` before signing.
+- Signatures are returned as DER-encoded ECDSA bytes.
 
 ## Extending
 

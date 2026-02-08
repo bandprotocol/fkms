@@ -12,32 +12,33 @@ pub fn get_config(path: PathBuf) -> anyhow::Result<Config> {
 }
 
 #[cfg(feature = "local")]
-pub fn get_local_signers_from_config(
+pub fn get_evm_local_signers_from_config(
     configs: &[LocalSignerConfig],
 ) -> anyhow::Result<Vec<LocalSigner>> {
-    configs
-        .iter()
-        .map(|config| {
-            let pkb = match config {
-                LocalSignerConfig::PrivateKey {
-                    env_variable,
-                    encoding,
-                } => {
-                    let pk = env::var(env_variable)?;
-                    match encoding {
-                        Encoding::Hex => hex::decode(pk)?,
-                        Encoding::Base64 => {
-                            let engine = base64::engine::general_purpose::STANDARD;
-                            engine.decode(pk)?
-                        }
+    let mut signers = Vec::new();
+    for config in configs {
+        match config {
+            LocalSignerConfig::PrivateKey {
+                env_variable,
+                encoding,
+            } => {
+                let pk = env::var(env_variable)?;
+                let pkb = match encoding {
+                    Encoding::Hex => hex::decode(pk)?,
+                    Encoding::Base64 => {
+                        let engine = base64::engine::general_purpose::STANDARD;
+                        engine.decode(pk)?
                     }
-                }
-                LocalSignerConfig::Mnemonic {
-                    env_variable,
-                    coin_type,
-                    account,
-                    index,
-                } => {
+                };
+                signers.push(LocalSigner::new(&pkb)?);
+            }
+            LocalSignerConfig::Mnemonic {
+                env_variable,
+                coin_type,
+                account,
+                index,
+            } => {
+                if *coin_type == 60 {
                     let mnemonic = env::var(env_variable)?;
 
                     let hd_path = format!("m/44'/{}'/{}'/0/{}", coin_type, account, index);
@@ -48,11 +49,40 @@ pub fn get_local_signers_from_config(
                         .build()?;
 
                     let pkb = signer.credential().to_bytes().to_vec();
-
-                    pkb
+                    signers.push(LocalSigner::new(&pkb)?);
                 }
-            };
-            Ok(LocalSigner::new(&pkb)?)
-        })
-        .collect()
+            }
+        }
+    }
+    Ok(signers)
+}
+
+#[cfg(feature = "local")]
+pub fn get_xrpl_local_signers_from_config(
+    configs: &[LocalSignerConfig],
+) -> anyhow::Result<Vec<LocalSigner>> {
+    let mut signers = Vec::new();
+    for config in configs {
+        if let LocalSignerConfig::Mnemonic {
+            env_variable,
+            coin_type,
+            account,
+            index,
+        } = config
+            && *coin_type == 144
+        {
+            let mnemonic = env::var(env_variable)?;
+
+            let hd_path = format!("m/44'/{}'/{}'/0/{}", coin_type, account, index);
+
+            let signer = MnemonicBuilder::<English>::default()
+                .phrase(mnemonic)
+                .derivation_path(hd_path)?
+                .build()?;
+
+            let pkb = signer.credential().to_bytes().to_vec();
+            signers.push(LocalSigner::new(&pkb)?);
+        }
+    }
+    Ok(signers)
 }
