@@ -74,7 +74,6 @@ pub async fn start(path: PathBuf) -> anyhow::Result<()> {
     Ok(())
 }
 
-
 // load tss public key in 33 bytes hex format e.g. 03235b757dbddd3c149327b5eb54b0cd3f522ef6c4976e57c336321444c1325b02 (activeTime, parity, px)
 pub fn load_tss_public_key() -> anyhow::Result<[u8; 33]> {
     let tss_pubkey = env::var("TSS_PUBLIC_KEY")?;

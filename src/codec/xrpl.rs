@@ -127,7 +127,7 @@ mod tests {
             decode_prices_from_encoded_tx(&encoded_tx).expect("Failed to decode prices from tx");
 
         // Expected output data
-        let expected = vec![
+        let expected = [
             ("CS:BTC-USD".to_string(), 70782384900493u64),
             ("CS:ETH-USD".to_string(), 2087124348288u64),
             ("CS:RLUSD-USD".to_string(), 999960077u64),
