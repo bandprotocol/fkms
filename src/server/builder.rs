@@ -15,22 +15,22 @@ pub struct ServerBuilder {
 }
 
 impl ServerBuilder {
-    pub fn with_evm_signer<T>(&mut self, signer: T)
+    pub fn with_evm_signer<T>(&mut self, address: String, signer: T)
     where
         T: Signer<EcdsaSignature> + EvmSigner,
     {
         self.evm_signers.insert(
-            signer.evm_address(),
+            address,
             Box::new(signer) as Box<dyn Signer<EcdsaSignature> + 'static>,
         );
     }
 
-    pub fn with_xrpl_signer<T>(&mut self, signer: T)
+    pub fn with_xrpl_signer<T>(&mut self, address: String, signer: T)
     where
         T: Signer<DerSignature> + XrplSigner,
     {
         self.xrpl_signers.insert(
-            signer.xrpl_address(),
+            address,
             Box::new(signer) as Box<dyn Signer<DerSignature> + 'static>,
         );
     }

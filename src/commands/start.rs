@@ -29,8 +29,9 @@ pub async fn start(path: PathBuf) -> anyhow::Result<()> {
         let signer_configs = &config.signer_config.local_signer_configs;
         let signers = get_evm_local_signers_from_config(signer_configs)?;
         for signer in signers {
-            info!("initialized local signer: {}", signer.evm_address());
-            builder.with_evm_signer(signer);
+            let address = signer.evm_address()?;
+            info!("initialized local signer: {}", address);
+            builder.with_evm_signer(address, signer);
         }
     }
 
@@ -39,8 +40,9 @@ pub async fn start(path: PathBuf) -> anyhow::Result<()> {
         let signer_configs = &config.signer_config.local_signer_configs;
         let signers = get_xrpl_local_signers_from_config(signer_configs)?;
         for signer in signers {
-            info!("initialized xrpl signer: {}", signer.xrpl_address());
-            builder.with_xrpl_signer(signer);
+            let address = signer.xrpl_address()?;
+            info!("initialized xrpl signer: {}", signer.xrpl_address()?);
+            builder.with_xrpl_signer(address, signer);
         }
     }
 

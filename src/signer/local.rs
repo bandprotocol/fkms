@@ -86,37 +86,39 @@ impl Signer<DerSignature> for LocalSigner {
 #[cfg(test)]
 mod test {
     use crate::signer::local::LocalSigner;
-    use crate::signer::signature::Signature;
-    use k256::sha2::{Digest, Sha512};
+    use k256::{
+        ecdsa::signature::SignatureEncoding,
+        sha2::{Digest, Sha512},
+    };
+    use sha3::Keccak256;
+
     #[test]
-    fn test_sign_eddsa() {
-        // Ed25519 private key (32 bytes)
-        let pk = hex::decode("45EA1AD910DF93D1A021A42F384AAD55C7C65D565AD6B2203A4BA50418922A7B")
+    fn test_sign_ecdsa() {
+        let pk = hex::decode("d430736144cbe3c083b22b8b5975eef970bf04336dda98748bbef1a3e5e5713a")
             .unwrap();
         let signer = LocalSigner::new(&pk).unwrap();
-        let message = b"535458001200332400DE79DA2F698176A4201B00DE7A5420330000000168400000000000000C732102D5A397A10DE2C485FA5592FFD86A7B5744BC221E24F71196ACD32EB66B14264C701C0863757272656E6379701D0D42616E642050726F746F636F6C81140E54D919C94CDA274DDE1CC05D5A49DE2CCB0D51F018E02030170078494931283998041009011A0000000000000000000000004254430000000000021A0000000000000000000000005553440000000000E1E02030170002336276028668041009011A0000000000000000000000004554480000000000021A0000000000000000000000005553440000000000E1E02030170000000999681507041009011A524C555344000000000000000000000000000000021A0000000000000000000000005553440000000000E1E02030170000000999705051041009011A5553444300000000000000000000000000000000021A0000000000000000000000005553440000000000E1E02030170000000999079402041009011A5553445400000000000000000000000000000000021A0000000000000000000000005553440000000000E1E02030170078292915033480041009011A5742544300000000000000000000000000000000021A0000000000000000000000005553440000000000E1E02030170000001610264882041009011A0000000000000000000000000000000000000000021A0000000000000000000000005553440000000000E1F1";
-        let b = hex::decode(message).unwrap();
-        let message = sha512_half(&b);
-        let actual = signer.sign_der(&message).unwrap().into_vec();
+        let message = b"Hello, world!";
+        let signature = hex::encode(
+            signer
+                .sign_ecdsa(&Keccak256::digest(message))
+                .unwrap()
+                .0
+                .to_bytes(),
+        );
+        let expected = "351ce606456376c70913430ab2eabd76e3e6e6b7898fb01422e31cbffe2cf55b5a1d67d3a35367879e4983d50bdfcdc0cd052b8ec30edbaa47dcfe36585adf47";
 
-        let expected = "3045022100ECBB5B8F8904EC94EF86B7929604C8C19A558FC2BE97142B2A46C6C56574F8B90220155F3D06E0ABDE2CF9632EA64B4448666A9D0A57EEBC2EFB3E050819F2380E1E";
-
-        // This is just a placeholder - you'll need to verify with actual expected signature
-        println!("EdDSA signature: {}", hex::encode(&actual));
-        assert_eq!(hex::encode(&actual), expected);
+        assert_eq!(signature, expected);
     }
 
-    fn sha512_half(msg: &[u8]) -> Vec<u8> {
-        // 1. Create a hasher object
-        let mut hasher = Sha512::new();
+    #[test]
+    fn test_sign_der() {
+        let pk = hex::decode("45ea1ad910df93d1a021a42f384aad55c7c65d565ad6b2203a4ba50418922a7b")
+            .unwrap();
+        let signer = LocalSigner::new(&pk).unwrap();
+        let message = &Sha512::digest(b"Hello, world!")[..32];
+        let signature = hex::encode(signer.sign_der(message).unwrap().to_vec());
+        let expected = "304402203a3fcf5aadf9e26bc931fc54a924013413d80fb538c5048fc4e4c8dd2e6c178502202de7b72145515c0d23ed4f2bce9dd26541c26059557a607ccdcfee47d88cd1eb";
 
-        // 2. Write input data
-        hasher.update(msg);
-
-        // 3. Finalize and get GenericArray
-        let result = hasher.finalize();
-
-        // 4. Return the first 32 bytes as a Vector
-        result[..32].to_vec()
+        assert_eq!(signature, expected);
     }
 }
