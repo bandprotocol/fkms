@@ -30,7 +30,7 @@ pub async fn start(path: PathBuf) -> anyhow::Result<()> {
         let signers = get_evm_local_signers_from_config(signer_configs)?;
         for signer in signers {
             let address = signer.evm_address()?;
-            info!("initialized local signer: {}", address);
+            info!("initialized evm local signer: {}", address);
             builder.with_evm_signer(address, signer);
         }
     }
