@@ -15,22 +15,22 @@ pub struct ServerBuilder {
 }
 
 impl ServerBuilder {
-    pub fn with_evm_signer<T>(&mut self, address: String, signer: T)
+    pub fn with_evm_signer<T>(&mut self, signer: T)
     where
         T: Signer<EcdsaSignature> + EvmSigner,
     {
         self.evm_signers.insert(
-            address,
+            signer.evm_address(),
             Box::new(signer) as Box<dyn Signer<EcdsaSignature> + 'static>,
         );
     }
 
-    pub fn with_xrpl_signer<T>(&mut self, address: String, signer: T)
+    pub fn with_xrpl_signer<T>(&mut self, signer: T)
     where
         T: Signer<DerSignature> + XrplSigner,
     {
         self.xrpl_signers.insert(
-            address,
+            signer.xrpl_address(),
             Box::new(signer) as Box<dyn Signer<DerSignature> + 'static>,
         );
     }
@@ -49,7 +49,7 @@ impl ServerBuilder {
         self.xrpl_pre_sign_hooks.push(Box::new(pre_sign_hook));
     }
 
-    pub fn with_tss_signture_verifier(&mut self, verifier: SignatureVerifier) {
+    pub fn with_tss_signature_verifier(&mut self, verifier: SignatureVerifier) {
         self.tss_signature_verifier = verifier;
     }
 

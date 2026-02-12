@@ -44,14 +44,14 @@ fn list_keys(path: PathBuf) -> anyhow::Result<()> {
                 "Public Key: {}",
                 hex::encode(local_signer.public_key(false))
             );
-            println!("Address: {}", local_signer.evm_address()?);
+            println!("Address: {}", local_signer.evm_address());
         }
 
         let xrpl_signers = get_xrpl_local_signers_from_config(signer_configs)?;
         for local_signer in xrpl_signers {
             println!("--- XRPL Signer ---");
             println!("Public Key: {}", hex::encode(local_signer.public_key(true)));
-            println!("XRPL Address: {}", local_signer.xrpl_address()?);
+            println!("XRPL Address: {}", local_signer.xrpl_address());
         }
     }
 

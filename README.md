@@ -122,14 +122,14 @@ The gRPC API is defined in [`proto/fkms/v1/signer.proto`](proto/fkms/v1/signer.p
 - `SignEvm(SignEvmRequest)`: Sign a message with a given address (EVM)
 - `SignXrpl(SignXrplRequest)`: Sign a message with a given address (XRPL)
 - `GetSignerAddresses(GetSignerAddressesRequest)`: List available signer addresses (EVM)
-- `GetXrplSignerAddresses(GetXrplSignerAddressesRequest)`: List available signer addresses (XRPL)
 
 ### Example: SignEvmRequest
 
 ```proto
 message SignEvmRequest {
   string address = 1;
-  bytes message = 2;
+  bytes tx_message = 2;
+  Tss tss = 3;
 }
 ```
 
@@ -138,7 +138,8 @@ message SignEvmRequest {
 ```proto
 message SignXrplRequest {
   string address = 1;
-  bytes message = 2;
+  bytes tx_message = 2;
+  Tss tss = 3;
 }
 ```
 
@@ -158,9 +159,19 @@ message GetXrplSignerAddressesResponse {
 }
 ```
 
+### Example: Tss
+
+```proto
+message Tss {
+  bytes message = 1;
+  bytes random_addr = 2;
+  bytes signature_s = 3;
+}
+```
+
 ### XRPL Signing Notes
 
-- The server computes `SHA-256(message)` before signing.
+- The server computes the XRPL-standard SHA512Half digest of `message` (SHA-512, then taking the first 32 bytes) before signing.
 - Signatures are returned as DER-encoded ECDSA bytes.
 
 ## Extending

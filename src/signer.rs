@@ -20,18 +20,18 @@ pub trait Signer<S: Signature>: Send + Sync + 'static {
 }
 
 pub trait EvmSigner: Send + Sync + 'static {
-    fn evm_address(&self) -> anyhow::Result<String>;
+    fn evm_address(&self) -> String;
 }
 
 pub trait XrplSigner: Send + Sync + 'static {
-    fn xrpl_address(&self) -> anyhow::Result<String>;
+    fn xrpl_address(&self) -> String;
 }
 
 impl<T> EvmSigner for T
 where
     T: Signer<EcdsaSignature>,
 {
-    fn evm_address(&self) -> anyhow::Result<String> {
+    fn evm_address(&self) -> String {
         public_key_to_evm_address(self.public_key(false))
     }
 }
@@ -40,47 +40,35 @@ impl<T> XrplSigner for T
 where
     T: Signer<DerSignature>,
 {
-    fn xrpl_address(&self) -> anyhow::Result<String> {
+    fn xrpl_address(&self) -> String {
         public_key_to_xrpl_address(self.public_key(true))
     }
 }
 
-fn public_key_to_evm_address(public_key: &[u8]) -> anyhow::Result<String> {
-    // EVM addresses are derived from the uncompressed 64-byte (X, Y) coordinates.
-    // expect 65 bytes: [0x04, X, Y]
-    if public_key.len() < 2 {
-        return Err(anyhow::anyhow!(
-            "Public key too short for EVM address derivation"
-        ));
-    }
-
+fn public_key_to_evm_address(public_key: &[u8]) -> String {
     let mut hasher = sha3::Keccak256::new();
-    hasher.update(&public_key[1..]);
+    hasher.update(&public_key[1..]); // Skip the first byte (0x04)
     let hash = hasher.finalize();
-
-    // Keccak256 always returns 32 bytes, so taking the last 20 [12..] is safe.
-    Ok(format!("0x{}", hex::encode(&hash[12..])))
+    format!("0x{}", hex::encode(&hash[12..]))
 }
 
-fn public_key_to_xrpl_address(public_key: &[u8]) -> anyhow::Result<String> {
-    // Use .map_err to convert EncodedPoint errors into anyhow::Error
-    let encoded = EncodedPoint::from_bytes(public_key)
-        .map_err(|e| anyhow::anyhow!("Invalid secp256k1 public key: {}", e))?;
+fn public_key_to_xrpl_address(public_key: &[u8]) -> String {
+    let encoded = EncodedPoint::from_bytes(public_key).expect("Invalid secp256k1 public key");
 
     let compressed = encoded.compress();
     let sha256 = Sha256::digest(compressed.as_bytes());
     let account_id = Ripemd160::digest(sha256);
 
     let mut payload = Vec::with_capacity(1 + account_id.len() + 4);
-    payload.push(0x00); // Mainnet version prefix
+    payload.push(0x00);
     payload.extend_from_slice(&account_id);
 
     let checksum = Sha256::digest(Sha256::digest(&payload));
     payload.extend_from_slice(&checksum[..4]);
 
-    Ok(bs58::encode(payload)
+    bs58::encode(payload)
         .with_alphabet(bs58::Alphabet::RIPPLE)
-        .into_string())
+        .into_string()
 }
 
 #[cfg(test)]
@@ -90,7 +78,7 @@ mod test {
     #[test]
     fn test_public_key_to_evm_address_1() {
         let pk = hex::decode("04b01ab5a1640da9ad9f9593c9e3d90a68a6a64b9fa4742edb13acb15e93ebee20ae14072003dd69a1eaf060bb74a90e27acd3e66fdb234b5225c665e2a26f52e7").unwrap();
-        let address = public_key_to_evm_address(&pk).unwrap();
+        let address = public_key_to_evm_address(&pk);
         let expected = "0x29754940a23e3571db50103dd379e1ec15597611";
         assert_eq!(address, expected);
     }
@@ -98,7 +86,7 @@ mod test {
     #[test]
     fn test_public_key_to_evm_address_2() {
         let pk = hex::decode("0470d624fa6823e50a874d65580961696626059fc2fc7d698813e24550ab51f1e5eb58b15735e50318a1c9f79c2d6b5a5c7fe34b64c99e59c207b0bb7f7c492b83").unwrap();
-        let address = public_key_to_evm_address(&pk).unwrap();
+        let address = public_key_to_evm_address(&pk);
         let expected = "0x151df313e367d60af962bd1fbd2508cf8da1fed6";
         assert_eq!(address, expected);
     }
@@ -106,8 +94,16 @@ mod test {
     #[test]
     fn test_public_key_to_evm_address_3() {
         let pk = hex::decode("0409cb1cab6bd46b7b050bf8427850340bc6906b88957d584432f6fc6510688f4a7c01b45e009bd1d700b4486325c915a6d25ba69722c8ded9da0ab76941870e3d").unwrap();
-        let address = public_key_to_evm_address(&pk).unwrap();
+        let address = public_key_to_evm_address(&pk);
         let expected = "0xf9c62d223a203c8160f19be3588e41d9d6e67a59";
+        assert_eq!(address, expected);
+    }
+
+    #[test]
+    fn test_public_key_to_xrpl_address() {
+        let pk = hex::decode("02D5A397A10DE2C485FA5592FFD86A7B5744BC221E24F71196ACD32EB66B14264C").unwrap();
+        let address = public_key_to_xrpl_address(&pk);
+        let expected = "rpJ8fpF16aB8a4rmhkZNaXCWq3zweEzKrB";
         assert_eq!(address, expected);
     }
 }

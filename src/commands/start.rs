@@ -29,9 +29,8 @@ pub async fn start(path: PathBuf) -> anyhow::Result<()> {
         let signer_configs = &config.signer_config.local_signer_configs;
         let signers = get_evm_local_signers_from_config(signer_configs)?;
         for signer in signers {
-            let address = signer.evm_address()?;
-            info!("initialized evm local signer: {}", address);
-            builder.with_evm_signer(address, signer);
+            info!("initialized evm local signer: {}", signer.evm_address());
+            builder.with_evm_signer(signer);
         }
     }
 
@@ -40,15 +39,14 @@ pub async fn start(path: PathBuf) -> anyhow::Result<()> {
         let signer_configs = &config.signer_config.local_signer_configs;
         let signers = get_xrpl_local_signers_from_config(signer_configs)?;
         for signer in signers {
-            let address = signer.xrpl_address()?;
-            info!("initialized xrpl signer: {}", signer.xrpl_address()?);
-            builder.with_xrpl_signer(address, signer);
+            info!("initialized xrpl signer: {}", signer.xrpl_address());
+            builder.with_xrpl_signer(signer);
         }
     }
 
     // load tss public key
     let tss_public_key = load_tss_public_key()?;
-    builder.with_tss_signture_verifier(SignatureVerifier::new(tss_public_key));
+    builder.with_tss_signature_verifier(SignatureVerifier::new(tss_public_key));
 
     #[cfg(feature = "aws")]
     {

@@ -50,8 +50,7 @@ pub fn decode_tss_message(tss_message: &[u8]) -> anyhow::Result<TssMessage> {
         .with_context(|| "Missing encoding prefix")?;
     let packet_data = tss_message
         .get(TSS_HEADER_LEN + 4..)
-        .with_context(|| "Missing packet data")?
-        .to_vec();
+        .with_context(|| "Missing packet data")?;
 
     let encoding_type = match encoding_prefix.try_into() {
         Ok(ENCODER_FIXED_POINT_ABI_PREFIX) => EncodingType::FixedPoint,
@@ -68,7 +67,7 @@ pub fn decode_tss_message(tss_message: &[u8]) -> anyhow::Result<TssMessage> {
     };
 
     let packet: Packet =
-        SolValue::abi_decode_validate(&packet_data).with_context(|| "Failed to decode abi")?;
+        SolValue::abi_decode_validate(packet_data).with_context(|| "Failed to decode abi")?;
 
     Ok(TssMessage {
         encoding_type,
