@@ -6,6 +6,7 @@ pub enum LocalSignerConfig {
     PrivateKey {
         env_variable: String,
         encoding: Encoding,
+        chain_type: ChainType,
     },
     Mnemonic {
         env_variable: String,
@@ -20,4 +21,11 @@ pub enum LocalSignerConfig {
 pub enum Encoding {
     Hex,
     Base64,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum ChainType {
+    Evm,
+    Xrpl,
 }

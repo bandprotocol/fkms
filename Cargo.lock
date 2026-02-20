@@ -7018,7 +7018,7 @@ dependencies = [
 [[package]]
 name = "xrpl_binary_codec"
 version = "0.16.7"
-source = "git+https://github.com/tanut32039/xrpl-sdk-rust#89f8e541d76a02c66932ebe34cea019c54eb4741"
+source = "git+https://github.com/tanut32039/xrpl-sdk-rust?rev=89f8e541d76a02c66932ebe34cea019c54eb4741#89f8e541d76a02c66932ebe34cea019c54eb4741"
 dependencies = [
  "bytes",
  "hashbrown 0.14.5",
@@ -7033,7 +7033,7 @@ dependencies = [
 [[package]]
 name = "xrpl_types"
 version = "0.16.7"
-source = "git+https://github.com/tanut32039/xrpl-sdk-rust#89f8e541d76a02c66932ebe34cea019c54eb4741"
+source = "git+https://github.com/tanut32039/xrpl-sdk-rust?rev=89f8e541d76a02c66932ebe34cea019c54eb4741#89f8e541d76a02c66932ebe34cea019c54eb4741"
 dependencies = [
  "ascii",
  "bs58",

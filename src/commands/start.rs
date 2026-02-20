@@ -39,7 +39,7 @@ pub async fn start(path: PathBuf) -> anyhow::Result<()> {
         let signer_configs = &config.signer_config.local_signer_configs;
         let signers = get_xrpl_local_signers_from_config(signer_configs)?;
         for signer in signers {
-            info!("initialized xrpl signer: {}", signer.xrpl_address());
+            info!("initialized xrpl local signer: {}", signer.xrpl_address());
             builder.with_xrpl_signer(signer);
         }
     }

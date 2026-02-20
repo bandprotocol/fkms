@@ -5,8 +5,14 @@ pub fn verify_message(encoded_tx: &[u8], tss_message: &[u8]) -> Result<(), anyho
     let tx_prices = decode_prices_from_encoded_tx(encoded_tx)?;
     let tss_message = decode_tss_message(tss_message)?;
 
-    if tx_prices != tss_message.signal_prices()? {
-        return Err(anyhow::anyhow!("Prices do not match"));
+    let signal_prices = tss_message.signal_prices()?;
+
+    if tx_prices != signal_prices {
+        return Err(anyhow::anyhow!(
+            "Prices do not match: tx_signal_prices={:?}, tss_signal_prices={:?}",
+            tx_prices,
+            signal_prices
+        ));
     }
     Ok(())
 }

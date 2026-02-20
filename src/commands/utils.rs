@@ -1,8 +1,10 @@
 use crate::config::Config;
+use crate::config::signer::local::ChainType;
 use crate::config::signer::local::{Encoding, LocalSignerConfig};
 use crate::signer::local::LocalSigner;
 use alloy_signer_local::MnemonicBuilder;
 use alloy_signer_local::coins_bip39::English;
+use anyhow::anyhow;
 use base64::Engine;
 use std::env;
 use std::path::PathBuf;
@@ -21,7 +23,14 @@ pub fn get_evm_local_signers_from_config(
             LocalSignerConfig::PrivateKey {
                 env_variable,
                 encoding,
+                chain_type,
             } => {
+                if chain_type == &ChainType::Xrpl {
+                    return Err(anyhow!(
+                        "Invalid chain type for local signer with private key: {:?}",
+                        chain_type
+                    ));
+                }
                 let pk = env::var(env_variable)?;
                 let pkb = match encoding {
                     Encoding::Hex => hex::decode(pk)?,

@@ -52,6 +52,7 @@ fn public_key_to_evm_address(public_key: &[u8]) -> String {
     format!("0x{}", hex::encode(&hash[12..]))
 }
 
+// This function can be ignored panic because it must not be called after server start
 fn public_key_to_xrpl_address(public_key: &[u8]) -> String {
     let encoded = EncodedPoint::from_bytes(public_key).expect("Invalid secp256k1 public key");
 
