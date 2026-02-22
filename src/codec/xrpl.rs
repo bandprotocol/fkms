@@ -31,7 +31,7 @@ struct PriceData {
 
 pub fn decode_prices_from_encoded_tx(encoded_tx: &[u8]) -> anyhow::Result<Vec<(String, u64)>> {
     let tx = deserialize_tx(encoded_tx)?;
-    let price_data_series: PriceDataSeriesWrapper = serde_json::from_value(tx)?;
+    let price_data_series = serde_json::from_value::<PriceDataSeriesWrapper>(tx)?;
 
     let mut prices = Vec::with_capacity(price_data_series.price_data_series.len());
     for price_data in price_data_series.price_data_series {

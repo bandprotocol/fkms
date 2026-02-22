@@ -12,14 +12,6 @@ pub struct SignatureVerifier {
     group_pub_key: [u8; 33],
 }
 
-impl Default for SignatureVerifier {
-    fn default() -> Self {
-        Self {
-            group_pub_key: [0u8; 33],
-        }
-    }
-}
-
 impl SignatureVerifier {
     pub fn new(group_pub_key: [u8; 33]) -> Self {
         Self { group_pub_key }

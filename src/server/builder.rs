@@ -11,7 +11,7 @@ pub struct ServerBuilder {
     xrpl_signers: HashMap<String, Box<dyn Signer<DerSignature> + 'static>>,
     evm_pre_sign_hooks: Vec<Box<dyn PreSignHook>>,
     xrpl_pre_sign_hooks: Vec<Box<dyn PreSignHook>>,
-    tss_signature_verifier: SignatureVerifier,
+    tss_signature_verifier: Option<SignatureVerifier>,
 }
 
 impl ServerBuilder {
@@ -50,7 +50,7 @@ impl ServerBuilder {
     }
 
     pub fn with_tss_signature_verifier(&mut self, verifier: SignatureVerifier) {
-        self.tss_signature_verifier = verifier;
+        self.tss_signature_verifier = Some(verifier);
     }
 
     pub fn build(self) -> Server {

@@ -14,5 +14,5 @@ pub struct Server {
     xrpl_signers: HashMap<String, Box<dyn Signer<DerSignature> + 'static>>,
     evm_pre_sign_hooks: Vec<Box<dyn PreSignHook>>,
     xrpl_pre_sign_hooks: Vec<Box<dyn PreSignHook>>,
-    tss_signature_verifier: SignatureVerifier,
+    tss_signature_verifier: Option<SignatureVerifier>,
 }

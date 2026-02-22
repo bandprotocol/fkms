@@ -32,16 +32,17 @@ impl FkmsService for Server {
             Status::internal(format!("Failed to verify message: {e}"))
         })?;
 
-        self.tss_signature_verifier
-            .verify(&tss.message, &tss.random_addr, &tss.signature_s)
-            .map_err(|e| {
-                error!("failed to verify tss message: {:?}", e);
-                Status::internal(format!("Failed to verify message: {e}"))
-            })?;
+        if let Some(verifier) = &self.tss_signature_verifier {
+            verifier
+                .verify(&tss.message, &tss.random_addr, &tss.signature_s)
+                .map_err(|e| {
+                    error!("failed to verify tss message: {:?}", e);
+                    Status::internal(format!("Failed to verify message: {e}"))
+                })?;
+        }
 
         for hook in &self.evm_pre_sign_hooks {
-            hook.call(&sign_evm_request.tx_message, &tss.message)
-                .await?;
+            hook.call(&sign_evm_request.tx_message).await?;
         }
 
         match self.evm_signers.get(&sign_evm_request.address) {
@@ -98,16 +99,17 @@ impl FkmsService for Server {
             Status::internal(format!("Failed to verify message: {e}"))
         })?;
 
-        self.tss_signature_verifier
-            .verify(&tss.message, &tss.random_addr, &tss.signature_s)
-            .map_err(|e| {
-                error!("failed to verify tss message: {:?}", e);
-                Status::internal(format!("Failed to verify message: {e}"))
-            })?;
+        if let Some(verifier) = &self.tss_signature_verifier {
+            verifier
+                .verify(&tss.message, &tss.random_addr, &tss.signature_s)
+                .map_err(|e| {
+                    error!("failed to verify tss message: {:?}", e);
+                    Status::internal(format!("Failed to verify message: {e}"))
+                })?;
+        }
 
         for hook in &self.xrpl_pre_sign_hooks {
-            hook.call(&sign_xrpl_request.tx_message, &tss.message)
-                .await?;
+            hook.call(&sign_xrpl_request.tx_message).await?;
         }
 
         match self.xrpl_signers.get(&sign_xrpl_request.address) {
