@@ -1,5 +1,7 @@
-use crate::codec;
-use crate::codec::xrpl::deserialize_tx;
+use crate::codec::evm::decode_tx;
+use crate::codec::tss::decode_tss_message;
+use crate::codec::xrpl::create_signing_payload;
+use crate::codec::xrpl::{encode_for_signing, encode_with_signature};
 use crate::proto::fkms::v1::fkms_service_server::FkmsService;
 use crate::proto::fkms::v1::{
     GetSignerAddressesRequest, GetSignerAddressesResponse, SignEvmRequest, SignEvmResponse,
@@ -7,9 +9,8 @@ use crate::proto::fkms::v1::{
 };
 use crate::server::Server;
 use crate::signer::signature::Signature;
-use crate::verifier::tss::message::{evm, xrpl};
+use crate::verifier::tss::message::verify_message;
 use k256::sha2::Sha512;
-use serde_json::Value;
 use sha3::Digest;
 use tonic::{Request, Response, Status};
 use tracing::{error, info, instrument, warn};
@@ -27,11 +28,7 @@ impl FkmsService for Server {
             .tss
             .ok_or_else(|| Status::invalid_argument("tss field is required and cannot be null"))?;
 
-        evm::verify_message(&sign_evm_request.tx_message, &tss.message).map_err(|e| {
-            error!("failed to verify evm message: {:?}", e);
-            Status::internal(format!("Failed to verify message: {e}"))
-        })?;
-
+        // verify tss signature
         if let Some(verifier) = &self.tss_signature_verifier {
             verifier
                 .verify(&tss.message, &tss.random_addr, &tss.signature_s)
@@ -41,8 +38,23 @@ impl FkmsService for Server {
                 })?;
         }
 
+        // decode tx, verify decoded prices, and tss message
+        let evm_tx = decode_tx(&sign_evm_request.tx_message)
+            .map_err(|e| Status::internal(format!("Failed to decode tx: {e}")))?;
+        let decoded_tss_message = decode_tss_message(&evm_tx.tss.message)
+            .map_err(|e| Status::internal(format!("Failed to decode TSS message: {}", e)))?;
+        let signal_prices = decoded_tss_message
+            .signal_prices()
+            .map_err(|e| Status::internal(format!("Failed to get signal prices: {}", e)))?;
+
+        verify_message(&signal_prices, &tss.message).map_err(|e| {
+            error!("failed to verify evm message: {:?}", e);
+            Status::internal(format!("Failed to verify message: {e}"))
+        })?;
+
+        // run pre sign hooks
         for hook in &self.evm_pre_sign_hooks {
-            hook.call(&sign_evm_request.tx_message).await?;
+            hook.call(&signal_prices).await?;
         }
 
         match self.evm_signers.get(&sign_evm_request.address) {
@@ -71,18 +83,6 @@ impl FkmsService for Server {
         }
     }
 
-    #[instrument(skip(self, _request))]
-    async fn get_signer_addresses(
-        &self,
-        _request: Request<GetSignerAddressesRequest>,
-    ) -> Result<Response<GetSignerAddressesResponse>, Status> {
-        info!("Got get_signer_addresses request");
-        let response = GetSignerAddressesResponse {
-            addresses: self.evm_signers.keys().cloned().collect(),
-        };
-        Ok(Response::new(response))
-    }
-
     #[instrument(skip(self, request))]
     async fn sign_xrpl(
         &self,
@@ -90,15 +90,15 @@ impl FkmsService for Server {
     ) -> Result<Response<SignXrplResponse>, Status> {
         let sign_xrpl_request = request.into_inner();
 
+        let signer_payload = sign_xrpl_request.signer_payload.ok_or_else(|| {
+            Status::invalid_argument("signer_payload field is required and cannot be null")
+        })?;
+
         let tss = sign_xrpl_request
             .tss
             .ok_or_else(|| Status::invalid_argument("tss field is required and cannot be null"))?;
 
-        xrpl::verify_message(&sign_xrpl_request.tx_message, &tss.message).map_err(|e| {
-            error!("failed to verify xrpl message: {:?}", e);
-            Status::internal(format!("Failed to verify message: {e}"))
-        })?;
-
+        // verify tss signature
         if let Some(verifier) = &self.tss_signature_verifier {
             verifier
                 .verify(&tss.message, &tss.random_addr, &tss.signature_s)
@@ -108,47 +108,56 @@ impl FkmsService for Server {
                 })?;
         }
 
+        // verify given prices and tss message
+        let prices: Vec<(String, u64)> = signer_payload
+            .signals
+            .iter()
+            .map(|s| (s.signal_id.clone(), s.price))
+            .collect();
+        verify_message(&prices, &tss.message).map_err(|e| {
+            error!("failed to verify xrpl message: {:?}", e);
+            Status::internal(format!("Failed to verify message: {e}"))
+        })?;
+
+        // run pre sign hooks
         for hook in &self.xrpl_pre_sign_hooks {
-            hook.call(&sign_xrpl_request.tx_message).await?;
+            hook.call(&prices).await?;
         }
 
-        match self.xrpl_signers.get(&sign_xrpl_request.address) {
+        match self.xrpl_signers.get(&signer_payload.account) {
             Some(signer) => {
-                let mut tx = deserialize_tx(&sign_xrpl_request.tx_message).map_err(|e| {
-                    error!("failed to deserialize xrpl message: {:?}", e);
-                    Status::internal(format!("Failed to deserialize xrpl message: {e}"))
-                })?;
-
-                let public_key = signer.public_key(true);
-                let new_tx = codec::xrpl::encode_tx_with_fields(
-                    &mut tx,
-                    vec![(
-                        "SigningPubKey".into(),
-                        Value::String(hex::encode(public_key)),
-                    )],
-                    true,
+                let public_key = hex::encode(signer.public_key(true));
+                let mut signing_payload = create_signing_payload(
+                    &prices,
+                    signer_payload.account,
+                    signer_payload.oracle_id,
+                    signer_payload.fee,
+                    signer_payload.sequence,
+                    signer_payload.last_updated_time,
+                    public_key,
                 )
                 .map_err(|e| {
-                    error!("failed to combine encoded tx with public key: {:?}", e);
-                    Status::internal(format!("Failed to combine encoded tx with public key: {e}"))
+                    error!("failed to create signing payload: {:?}", e);
+                    Status::internal(format!("Failed to create signing payload: {e}"))
                 })?;
 
-                let digest = &Sha512::digest(&new_tx)[..32];
+                let tx = encode_for_signing(&signing_payload).map_err(|e| {
+                    error!("failed to encode for signing: {:?}", e);
+                    Status::internal(format!("Failed to encode for signing: {e}"))
+                })?;
+
+                let digest = &Sha512::digest(&tx)[..32];
                 match signer.sign(digest).await {
                     Ok(s) => {
                         let signature = s.into_vec();
-                        let tx_blob = codec::xrpl::encode_tx_with_fields(
-                            &mut tx,
-                            vec![(
-                                "TxnSignature".to_string(),
-                                Value::String(hex::encode(signature)),
-                            )],
-                            false,
-                        )
-                        .map_err(|e| {
-                            error!("failed to create tx blob: {:?}", e);
-                            Status::internal(format!("Failed to create tx blob: {e}"))
-                        })?;
+                        let tx_blob =
+                            encode_with_signature(&mut signing_payload, hex::encode(signature))
+                                .map_err(|e| {
+                                    error!("failed to encode with signature: {:?}", e);
+                                    Status::internal(format!(
+                                        "Failed to encode with signature: {e}"
+                                    ))
+                                })?;
                         info!("successfully signed xrpl message");
                         Ok(Response::new(SignXrplResponse { tx_blob }))
                     }
@@ -159,9 +168,21 @@ impl FkmsService for Server {
                 }
             }
             None => {
-                warn!("no signer found for {}", sign_xrpl_request.address);
+                warn!("no signer found for {}", signer_payload.account);
                 Err(Status::not_found("Signer not found"))
             }
         }
+    }
+
+    #[instrument(skip(self, _request))]
+    async fn get_signer_addresses(
+        &self,
+        _request: Request<GetSignerAddressesRequest>,
+    ) -> Result<Response<GetSignerAddressesResponse>, Status> {
+        info!("Got get_signer_addresses request");
+        let response = GetSignerAddressesResponse {
+            addresses: self.evm_signers.keys().cloned().collect(),
+        };
+        Ok(Response::new(response))
     }
 }
