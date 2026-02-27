@@ -33,8 +33,8 @@ impl FkmsService for Server {
             verifier
                 .verify(&tss.message, &tss.random_addr, &tss.signature_s)
                 .map_err(|e| {
-                    error!("failed to verify tss message: {:?}", e);
-                    Status::internal(format!("Failed to verify message: {e}"))
+                    error!("failed to verify tss signature: {:?}", e);
+                    Status::internal(format!("Failed to verify tss signature: {e}"))
                 })?;
         }
 
@@ -48,8 +48,8 @@ impl FkmsService for Server {
             .map_err(|e| Status::internal(format!("Failed to get signal prices: {}", e)))?;
 
         verify_message(&signal_prices, &tss.message).map_err(|e| {
-            error!("failed to verify evm message: {:?}", e);
-            Status::internal(format!("Failed to verify message: {e}"))
+            error!("failed to verify tss message: {:?}", e);
+            Status::internal(format!("Failed to verify tss message: {e}"))
         })?;
 
         // run pre sign hooks
@@ -104,7 +104,7 @@ impl FkmsService for Server {
                 .verify(&tss.message, &tss.random_addr, &tss.signature_s)
                 .map_err(|e| {
                     error!("failed to verify tss message: {:?}", e);
-                    Status::internal(format!("Failed to verify message: {e}"))
+                    Status::internal(format!("Failed to verify tss signature: {e}"))
                 })?;
         }
 
@@ -116,7 +116,7 @@ impl FkmsService for Server {
             .collect();
         verify_message(&prices, &tss.message).map_err(|e| {
             error!("failed to verify xrpl message: {:?}", e);
-            Status::internal(format!("Failed to verify message: {e}"))
+            Status::internal(format!("Failed to verify tss message: {e}"))
         })?;
 
         // run pre sign hooks
@@ -140,12 +140,14 @@ impl FkmsService for Server {
                     error!("failed to create signing payload: {:?}", e);
                     Status::internal(format!("Failed to create signing payload: {e}"))
                 })?;
+                println!("signing_payload: {:#?}", signing_payload);
 
                 let tx = encode_for_signing(&signing_payload).map_err(|e| {
                     error!("failed to encode for signing: {:?}", e);
                     Status::internal(format!("Failed to encode for signing: {e}"))
                 })?;
 
+                // Sign with sha512half
                 let digest = &Sha512::digest(&tx)[..32];
                 match signer.sign(digest).await {
                     Ok(s) => {

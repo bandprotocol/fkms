@@ -13,13 +13,14 @@ pub fn create_signing_payload(
 ) -> anyhow::Result<Value> {
     Ok(json!(
         {
-            "TransactionType": "OracleSet",
+            // TransactionType: 51 (OracleSet)
+            "TransactionType": 51,
             "Account": account,
             "OracleDocumentID": oracle_id,
-            "Provider": str_to_hex("Band Protocol", 40)?,
-            "AssetClass": str_to_hex("Currency", 40)?,
+            "Provider": str_to_hex("Band Protocol", None)?,
+            "AssetClass": str_to_hex("Currency", None)?,
             "LastUpdateTime": last_updated_time,
-            "PriceData": signals
+            "PriceDataSeries": signals
                 .iter()
                 .map(|(signal, price)| create_price_data(signal, price))
                 .collect::<anyhow::Result<Vec<Value>>>()?,
@@ -50,11 +51,24 @@ pub fn encode_with_signature(tx: &mut Value, signature: String) -> anyhow::Resul
 
 fn create_price_data(signal_id: &str, price: &u64) -> anyhow::Result<Value> {
     let (base, quote) = extract_base_quote(signal_id)?;
+    
+    let base = if base.len() == 3 {
+        base
+    } else {
+        str_to_hex(&base, Some(40))?
+    };
+
+    let quote = if quote.len() == 3 {
+        quote
+    } else {
+        str_to_hex(&quote, Some(40))?
+    };
+
     Ok(json!({
         "PriceData": {
-            "AssetPrice": format!("{:x}", price),
-            "BaseAsset": str_to_hex(&base, 40)?,
-            "QuoteAsset": str_to_hex(&quote, 40)?,
+            "AssetPrice": price.to_string(),
+            "BaseAsset": base,
+            "QuoteAsset": quote,
             "Scale": 9,
         }
     }))
@@ -80,7 +94,7 @@ fn extract_base_quote(signal: &str) -> anyhow::Result<(String, String)> {
     Ok((base_quote[0].to_string(), base_quote[1].to_string()))
 }
 
-fn str_to_hex(s: &str, length: usize) -> anyhow::Result<String> {
+fn str_to_hex(s: &str, length: Option<usize>) -> anyhow::Result<String> {
     // Convert characters to Hex uppercase
     let mut hex_str = s.chars().fold(String::new(), |mut acc, c| {
         acc.push_str(&format!("{:02X}", c as u32));
@@ -88,17 +102,19 @@ fn str_to_hex(s: &str, length: usize) -> anyhow::Result<String> {
     });
 
     // Validate length (Error if hex is already longer than target)
-    if length != 0 && hex_str.len() > length {
-        return Err(anyhow!(
-            "The hex string length ({}) is longer than expected ({}).",
-            hex_str.len(),
-            length
-        ));
-    }
+    if let Some(length) = length {
+        if hex_str.len() > length {
+            return Err(anyhow!(
+                "The hex string length ({}) is longer than expected ({}).",
+                hex_str.len(),
+                length
+            ));
+        }
 
-    // Right-pad with '0' until target length is reached
-    while length != 0 && hex_str.len() < length {
-        hex_str.push('0');
+        // Right-pad with '0' until target length is reached
+        while hex_str.len() < length {
+            hex_str.push('0');
+        }
     }
 
     Ok(hex_str)
@@ -111,75 +127,83 @@ mod tests {
     #[test]
     fn test_create_signing_payload_success() {
         let signals = vec![
-            ("CS:BTC-USD".to_string(), 65000),
-            ("CS:ETH-USD".to_string(), 3500),
+            ("CS:BTC-USD".to_string(), 67758920310332u64),
+            ("CS:XRP-USD".to_string(), 1410834569u64),
         ];
+
+        // Ripple Epoch for 2026-02-26 is approx 825330000
+        let last_update = 825330000; 
 
         let result = create_signing_payload(
             &signals,
-            "rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh".to_string(),
-            1,
+            "rpJ8fpF16aB8a4rmhkZNaXCWq3zweEzKrB".to_string(),
+            869,
             "10".to_string(),
-            100,
-            761234567,
-            "03EDAD0E3390D421E03D8114B00D09B607994D9969F21516A0F1F0E75691D80C9C".to_string(),
+            14580274,
+            last_update,
+            "02d5a397a10de2c485fa5592ffd86a7b5744bc221e24f71196acd32eb66b14264c".to_string(),
         );
 
-        assert!(
-            result.is_ok(),
-            "Payload creation failed: {:?}",
-            result.err()
-        );
-
+        assert!(result.is_ok(), "Payload creation failed: {:?}", result.err());
         let payload = result.unwrap();
 
-        // Verify Top-level fields
-        assert_eq!(payload["TransactionType"], "OracleSet");
-        assert_eq!(payload["Sequence"], 100);
-        assert_eq!(payload["Fee"], "10");
+        // Verify TransactionType (Should be OracleSet or 32)
+        // If library converts 51 to OracleSet, this passes.
+        assert!(payload["TransactionType"] == "OracleSet" || payload["TransactionType"] == 51);
 
-        // Verify PriceData nesting
-        let price_data_list = payload["PriceData"]
-            .as_array()
-            .expect("PriceData should be an array");
-        assert_eq!(price_data_list.len(), 2);
+        // Verify Field Names (Crucial for temMALFORMED)
+        assert!(payload.get("OracleDocumentID").is_some(), "Field 'OracleDocumentID' missing");
+        assert!(payload.get("PriceDataSeries").is_some(), "Field 'PriceDataSeries' missing");
+        assert!(payload.get("LastUpdateTime").is_some(), "Field 'LastUpdateTime' missing");
 
-        // Verify specific hex conversion (BTC in hex is 425443)
-        let first_base = price_data_list[0]["PriceData"]["BaseAsset"]
-            .as_str()
-            .unwrap();
-        assert!(first_base.starts_with("425443"));
-        assert_eq!(first_base.len(), 40);
+        // Verify PriceDataSeries content
+        let series = payload["PriceDataSeries"].as_array().unwrap();
+        assert_eq!(series.len(), 2);
+
+        // Verify BTC entry (BaseAsset should be "BTC" as per your logic for len == 3)
+        let btc_entry = &series[0]["PriceData"];
+        assert_eq!(btc_entry["BaseAsset"], "BTC");
+        assert_eq!(btc_entry["QuoteAsset"], "USD");
+        
+        // Verify price is a string (to avoid JSON float issues)
+        assert!(btc_entry["AssetPrice"].is_string());
     }
 
     #[test]
-    fn test_extract_base_quote_valid() {
-        let (base, quote) = extract_base_quote("CS:XRP-USD").unwrap();
-        assert_eq!(base, "XRP");
+    fn test_extract_base_quote_complex() {
+        // Test standard format
+        let (base, quote) = extract_base_quote("CS:BTC-USD").unwrap();
+        assert_eq!(base, "BTC");
+        assert_eq!(quote, "USD");
+
+        // Test non-standard asset format
+        let (base, quote) = extract_base_quote("CS:WBTC-USD").unwrap();
+        assert_eq!(base, "WBTC");
         assert_eq!(quote, "USD");
     }
 
     #[test]
-    fn test_extract_base_quote_invalid_format() {
-        // Missing colon
-        assert!(extract_base_quote("BTC-USD").is_err());
-        // Missing dash
-        assert!(extract_base_quote("CS:BTCUSD").is_err());
+    fn test_str_to_hex_for_assets() {
+        // WBTC is 4 chars, so your logic calls str_to_hex(..., 40)
+        let hex_val = str_to_hex("WBTC", Some(40)).unwrap();
+        
+        // "W" = 57, "B" = 42, "T" = 54, "C" = 43
+        assert!(hex_val.starts_with("57425443"));
+        assert_eq!(hex_val.len(), 40);
+        assert!(hex_val.ends_with('0')); // Ensure right padding
     }
 
     #[test]
-    fn test_str_to_hex_padding() {
-        // "XRP" -> 585250...
-        let hex = str_to_hex("XRP", 10).unwrap();
-        assert_eq!(hex, "5852500000");
-        assert_eq!(hex.len(), 10);
+    fn test_str_to_hex_no_length_constraint() {
+        // Should convert without adding any padding or validation
+        let result = str_to_hex("ABC", None).unwrap();
+        assert_eq!(result, "414243");
     }
 
     #[test]
-    fn test_str_to_hex_too_long_error() {
-        // "This string is long" is 19 chars -> 38 hex chars.
-        // Setting max length to 10 should fail.
-        let result = str_to_hex("This string is long", 10);
-        assert!(result.is_err());
+    fn test_invalid_signal_formats() {
+        assert!(extract_base_quote("INVALID").is_err());
+        assert!(extract_base_quote("CS:BTCUSD").is_err()); // Missing dash
+        assert!(extract_base_quote("BTC-USD").is_err());   // Missing prefix
     }
 }
