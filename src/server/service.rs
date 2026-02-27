@@ -140,7 +140,6 @@ impl FkmsService for Server {
                     error!("failed to create signing payload: {:?}", e);
                     Status::internal(format!("Failed to create signing payload: {e}"))
                 })?;
-                println!("signing_payload: {:#?}", signing_payload);
 
                 let tx = encode_for_signing(&signing_payload).map_err(|e| {
                     error!("failed to encode for signing: {:?}", e);

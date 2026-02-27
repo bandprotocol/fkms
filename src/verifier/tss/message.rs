@@ -4,7 +4,6 @@ pub fn verify_message(prices: &[(String, u64)], tss_message: &[u8]) -> Result<()
     let tss_message = decode_tss_message(tss_message)?;
 
     let signal_prices = tss_message.signal_prices()?;
-    println!("signal_prices: {:?}", signal_prices);
 
     if prices != signal_prices {
         return Err(anyhow::anyhow!(
