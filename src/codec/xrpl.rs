@@ -51,7 +51,7 @@ pub fn encode_with_signature(tx: &mut Value, signature: String) -> anyhow::Resul
 
 fn create_price_data(signal_id: &str, price: &u64) -> anyhow::Result<Value> {
     let (base, quote) = extract_base_quote(signal_id)?;
-    
+
     let base = if base.len() == 3 {
         base
     } else {
@@ -132,7 +132,7 @@ mod tests {
         ];
 
         // Ripple Epoch for 2026-02-26 is approx 825330000
-        let last_update = 825330000; 
+        let last_update = 825330000;
 
         let result = create_signing_payload(
             &signals,
@@ -144,7 +144,11 @@ mod tests {
             "02d5a397a10de2c485fa5592ffd86a7b5744bc221e24f71196acd32eb66b14264c".to_string(),
         );
 
-        assert!(result.is_ok(), "Payload creation failed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Payload creation failed: {:?}",
+            result.err()
+        );
         let payload = result.unwrap();
 
         // Verify TransactionType (Should be OracleSet or 32)
@@ -152,9 +156,18 @@ mod tests {
         assert!(payload["TransactionType"] == "OracleSet" || payload["TransactionType"] == 51);
 
         // Verify Field Names (Crucial for temMALFORMED)
-        assert!(payload.get("OracleDocumentID").is_some(), "Field 'OracleDocumentID' missing");
-        assert!(payload.get("PriceDataSeries").is_some(), "Field 'PriceDataSeries' missing");
-        assert!(payload.get("LastUpdateTime").is_some(), "Field 'LastUpdateTime' missing");
+        assert!(
+            payload.get("OracleDocumentID").is_some(),
+            "Field 'OracleDocumentID' missing"
+        );
+        assert!(
+            payload.get("PriceDataSeries").is_some(),
+            "Field 'PriceDataSeries' missing"
+        );
+        assert!(
+            payload.get("LastUpdateTime").is_some(),
+            "Field 'LastUpdateTime' missing"
+        );
 
         // Verify PriceDataSeries content
         let series = payload["PriceDataSeries"].as_array().unwrap();
@@ -164,7 +177,7 @@ mod tests {
         let btc_entry = &series[0]["PriceData"];
         assert_eq!(btc_entry["BaseAsset"], "BTC");
         assert_eq!(btc_entry["QuoteAsset"], "USD");
-        
+
         // Verify price is a string (to avoid JSON float issues)
         assert!(btc_entry["AssetPrice"].is_string());
     }
@@ -186,7 +199,7 @@ mod tests {
     fn test_str_to_hex_for_assets() {
         // WBTC is 4 chars, so your logic calls str_to_hex(..., 40)
         let hex_val = str_to_hex("WBTC", Some(40)).unwrap();
-        
+
         // "W" = 57, "B" = 42, "T" = 54, "C" = 43
         assert!(hex_val.starts_with("57425443"));
         assert_eq!(hex_val.len(), 40);
@@ -204,6 +217,6 @@ mod tests {
     fn test_invalid_signal_formats() {
         assert!(extract_base_quote("INVALID").is_err());
         assert!(extract_base_quote("CS:BTCUSD").is_err()); // Missing dash
-        assert!(extract_base_quote("BTC-USD").is_err());   // Missing prefix
+        assert!(extract_base_quote("BTC-USD").is_err()); // Missing prefix
     }
 }
