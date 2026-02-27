@@ -121,7 +121,7 @@ The gRPC API is defined in [`proto/fkms/v1/signer.proto`](proto/fkms/v1/signer.p
 
 - `SignEvm(SignEvmRequest)`: Sign a message with a given address (EVM)
 - `SignXrpl(SignXrplRequest)`: Sign a message with a given address (XRPL)
-- `GetSignerAddresses(GetSignerAddressesRequest)`: List available signer addresses (EVM)
+- `GetSignerAddresses(GetSignerAddressesRequest)`: List available signer addresses
 
 ### Example: SignEvmRequest
 
@@ -133,14 +133,35 @@ message SignEvmRequest {
 }
 ```
 
+### Example: SignEvmResponse
+
+```proto
+message SignEvmResponse {
+  bytes signature = 1;
+}
+```
+
 ### Example: SignXrplRequest
 
 ```proto
 message SignXrplRequest {
-  string address = 1;
-  bytes tx_message = 2;
-  Tss tss = 3;
+  XrplSignerPayload signer_payload = 1;
+  Tss tss = 2;
 }
+```
+
+### Example: SignXrplResponse
+
+```proto
+message SignXrplResponse {
+  bytes tx_blob = 1;
+}
+```
+
+### Example: GetSignerAddressesRequest
+
+```proto
+message GetSignerAddressesRequest {}
 ```
 
 ### Example: GetSignerAddressesResponse
@@ -151,11 +172,25 @@ message GetSignerAddressesResponse {
 }
 ```
 
-### Example: GetXrplSignerAddressesResponse
+### Example: XrplSignerPayload
 
 ```proto
-message GetXrplSignerAddressesResponse {
-  repeated string addresses = 1;
+message XrplSignerPayload {
+  repeated Signal signals = 1;
+  string account = 2;
+  uint64 oracle_id = 3;
+  string fee = 4;
+  uint64 sequence = 5;
+  uint64 last_updated_time = 6;
+}
+```
+
+### Example: Signal
+
+```proto
+message Signal {
+  string signal_id = 1;
+  uint64 price = 2;
 }
 ```
 
