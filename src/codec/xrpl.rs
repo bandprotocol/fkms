@@ -79,7 +79,7 @@ fn extract_base_quote(signal: &str) -> anyhow::Result<(String, String)> {
     if parts.len() != 2 {
         return Err(anyhow::anyhow!(
             "Invalid signal format, expected: {}, actual: {}",
-            "CS:BASE-QUOTE",
+            "XX:BASE-QUOTE",
             signal
         ));
     }
@@ -94,6 +94,7 @@ fn extract_base_quote(signal: &str) -> anyhow::Result<(String, String)> {
     Ok((base_quote[0].to_string(), base_quote[1].to_string()))
 }
 
+// only supports ASCII characters
 fn str_to_hex(s: &str, length: Option<usize>) -> anyhow::Result<String> {
     // Convert characters to Hex uppercase
     let mut hex_str = s.chars().fold(String::new(), |mut acc, c| {

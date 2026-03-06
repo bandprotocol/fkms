@@ -70,7 +70,7 @@ impl Signer<EcdsaSignature> for AwsSigner {
         self.sign_ecsda(message).await
     }
 
-    fn public_key(&self, _: bool) -> &[u8] {
+    fn public_key(&self) -> &[u8] {
         self.ecsda_public_key.as_slice()
     }
 }

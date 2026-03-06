@@ -27,18 +27,14 @@ pub async fn start(path: PathBuf) -> anyhow::Result<()> {
     #[cfg(feature = "local")]
     {
         let signer_configs = &config.signer_config.local_signer_configs;
-        let signers = get_evm_local_signers_from_config(signer_configs)?;
-        for signer in signers {
+        let evm_signers = get_evm_local_signers_from_config(signer_configs)?;
+        for signer in evm_signers {
             info!("initialized evm local signer: {}", signer.evm_address());
             builder.with_evm_signer(signer);
         }
-    }
 
-    #[cfg(feature = "local")]
-    {
-        let signer_configs = &config.signer_config.local_signer_configs;
-        let signers = get_xrpl_local_signers_from_config(signer_configs)?;
-        for signer in signers {
+        let xrpl_signers = get_xrpl_local_signers_from_config(signer_configs)?;
+        for signer in xrpl_signers {
             info!("initialized xrpl local signer: {}", signer.xrpl_address());
             builder.with_xrpl_signer(signer);
         }
@@ -72,7 +68,9 @@ pub async fn start(path: PathBuf) -> anyhow::Result<()> {
     Ok(())
 }
 
-// load tss public key in 33 bytes hex format e.g. 03235b757dbddd3c149327b5eb54b0cd3f522ef6c4976e57c336321444c1325b02 (activeTime, parity, px)
+// Load TSS secp256k1 public key in 33-byte compressed SEC1 hex format
+// (1-byte prefix 0x02/0x03 + 32-byte x-coordinate), e.g.
+// 03235b757dbddd3c149327b5eb54b0cd3f522ef6c4976e57c336321444c1325b02
 pub fn load_tss_public_key() -> anyhow::Result<[u8; 33]> {
     let tss_pubkey =
         env::var("TSS_PUBLIC_KEY").map_err(|e| anyhow!("TSS_PUBLIC_KEY not set: {}", e))?;

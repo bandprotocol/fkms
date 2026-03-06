@@ -49,16 +49,8 @@ pub fn get_evm_local_signers_from_config(
             } => {
                 if *coin_type == 60 {
                     let mnemonic = env::var(env_variable)?;
-
-                    let hd_path = format!("m/44'/{}'/{}'/0/{}", coin_type, account, index);
-
-                    let signer = MnemonicBuilder::<English>::default()
-                        .phrase(mnemonic)
-                        .derivation_path(hd_path)?
-                        .build()?;
-
-                    let pkb = signer.credential().to_bytes().to_vec();
-                    signers.push(LocalSigner::new(&pkb)?);
+                    let signer = derive_signer_from_mnemonic(mnemonic, *coin_type, *account, *index)?;
+                    signers.push(signer);
                 }
             }
         }
@@ -81,17 +73,29 @@ pub fn get_xrpl_local_signers_from_config(
             && *coin_type == 144
         {
             let mnemonic = env::var(env_variable)?;
-
-            let hd_path = format!("m/44'/{}'/{}'/0/{}", coin_type, account, index);
-
-            let signer = MnemonicBuilder::<English>::default()
-                .phrase(mnemonic)
-                .derivation_path(hd_path)?
-                .build()?;
-
-            let pkb = signer.credential().to_bytes().to_vec();
-            signers.push(LocalSigner::new(&pkb)?);
+            let signer = derive_signer_from_mnemonic(mnemonic, *coin_type, *account, *index)?;
+            signers.push(signer);
         }
     }
     Ok(signers)
 }
+
+#[cfg(feature = "local")]
+fn derive_signer_from_mnemonic(
+    mnemonic: String,
+    coin_type: u32,
+    account: u32,
+    index: u32,
+) -> anyhow::Result<LocalSigner> {
+    let hd_path = format!("m/44'/{}'/{}'/0/{}", coin_type, account, index);
+
+    let signer = MnemonicBuilder::<English>::default()
+        .phrase(mnemonic)
+        .derivation_path(&hd_path)?
+        .build()?;
+
+    let pkb = signer.credential().to_bytes().to_vec();
+
+    Ok(LocalSigner::new(&pkb)?)
+}
+

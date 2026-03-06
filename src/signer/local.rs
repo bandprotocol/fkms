@@ -44,12 +44,12 @@ impl LocalSigner {
         self.signing_key.sign_prehash(message)
     }
 
-    pub fn public_key(&self, is_compressed: bool) -> &[u8] {
-        if is_compressed {
-            self.compressed_ecdsa_public_key.as_slice()
-        } else {
-            self.uncompressed_ecdsa_public_key.as_slice()
-        }
+    pub fn compressed_public_key(&self) -> &[u8] {
+        self.compressed_ecdsa_public_key.as_slice()
+    }
+
+    pub fn uncompressed_public_key(&self) -> &[u8] {
+        self.uncompressed_ecdsa_public_key.as_slice()
     }
 }
 
@@ -59,12 +59,8 @@ impl Signer<EcdsaSignature> for LocalSigner {
         Ok(self.sign_ecdsa(message)?)
     }
 
-    fn public_key(&self, is_compressed: bool) -> &[u8] {
-        if is_compressed {
-            self.compressed_ecdsa_public_key.as_slice()
-        } else {
-            self.uncompressed_ecdsa_public_key.as_slice()
-        }
+    fn public_key(&self) -> &[u8] {
+        self.uncompressed_ecdsa_public_key.as_slice()
     }
 }
 
@@ -74,12 +70,8 @@ impl Signer<DerSignature> for LocalSigner {
         Ok(self.sign_der(message)?)
     }
 
-    fn public_key(&self, is_compressed: bool) -> &[u8] {
-        if is_compressed {
-            self.compressed_ecdsa_public_key.as_slice()
-        } else {
-            self.uncompressed_ecdsa_public_key.as_slice()
-        }
+    fn public_key(&self) -> &[u8] {
+        self.compressed_ecdsa_public_key.as_slice()
     }
 }
 

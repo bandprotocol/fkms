@@ -16,7 +16,7 @@ pub trait Signer<S: Signature>: Send + Sync + 'static {
     // For purpose of development anyhow will be used until other providers are complete
     async fn sign(&self, message: &[u8]) -> anyhow::Result<S>;
 
-    fn public_key(&self, is_compressed: bool) -> &[u8];
+    fn public_key(&self) -> &[u8];
 }
 
 pub trait EvmSigner: Send + Sync + 'static {
@@ -32,7 +32,7 @@ where
     T: Signer<EcdsaSignature>,
 {
     fn evm_address(&self) -> String {
-        public_key_to_evm_address(self.public_key(false))
+        public_key_to_evm_address(self.public_key())
     }
 }
 
@@ -41,7 +41,7 @@ where
     T: Signer<DerSignature>,
 {
     fn xrpl_address(&self) -> String {
-        public_key_to_xrpl_address(self.public_key(true))
+        public_key_to_xrpl_address(self.public_key())
     }
 }
 

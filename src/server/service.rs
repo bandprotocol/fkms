@@ -126,7 +126,7 @@ impl FkmsService for Server {
 
         match self.xrpl_signers.get(&signer_payload.account) {
             Some(signer) => {
-                let public_key = hex::encode(signer.public_key(true));
+                let public_key = hex::encode(signer.public_key());
                 let mut signing_payload = create_signing_payload(
                     &prices,
                     signer_payload.account,

@@ -42,7 +42,7 @@ fn list_keys(path: PathBuf) -> anyhow::Result<()> {
             println!("--- EVM Signer ---");
             println!(
                 "Public Key: {}",
-                hex::encode(local_signer.public_key(false))
+                hex::encode(local_signer.uncompressed_public_key())
             );
             println!("Address: {}", local_signer.evm_address());
         }
@@ -50,7 +50,7 @@ fn list_keys(path: PathBuf) -> anyhow::Result<()> {
         let xrpl_signers = get_xrpl_local_signers_from_config(signer_configs)?;
         for local_signer in xrpl_signers {
             println!("--- XRPL Signer ---");
-            println!("Public Key: {}", hex::encode(local_signer.public_key(true)));
+            println!("Public Key: {}", hex::encode(local_signer.compressed_public_key()));
             println!("XRPL Address: {}", local_signer.xrpl_address());
         }
     }
