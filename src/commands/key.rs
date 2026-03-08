@@ -50,7 +50,10 @@ fn list_keys(path: PathBuf) -> anyhow::Result<()> {
         let xrpl_signers = get_xrpl_local_signers_from_config(signer_configs)?;
         for local_signer in xrpl_signers {
             println!("--- XRPL Signer ---");
-            println!("Public Key: {}", hex::encode(local_signer.compressed_public_key()));
+            println!(
+                "Public Key: {}",
+                hex::encode(local_signer.compressed_public_key())
+            );
             println!("XRPL Address: {}", local_signer.xrpl_address());
         }
     }

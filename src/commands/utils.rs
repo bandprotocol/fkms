@@ -49,7 +49,8 @@ pub fn get_evm_local_signers_from_config(
             } => {
                 if *coin_type == 60 {
                     let mnemonic = env::var(env_variable)?;
-                    let signer = derive_signer_from_mnemonic(mnemonic, *coin_type, *account, *index)?;
+                    let signer =
+                        derive_signer_from_mnemonic(mnemonic, *coin_type, *account, *index)?;
                     signers.push(signer);
                 }
             }
@@ -98,4 +99,3 @@ fn derive_signer_from_mnemonic(
 
     Ok(LocalSigner::new(&pkb)?)
 }
-

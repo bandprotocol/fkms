@@ -84,8 +84,10 @@ impl SignatureVerifier {
         hasher.update(&[0]);
         hasher.update(&r_addr);
 
-        let band_prefix = self.group_pub_key[0].wrapping_add(25);
-        hasher.update(&[band_prefix]);
+        let parity = self.group_pub_key[0]
+            .checked_add(25)
+            .ok_or_else(|| anyhow!("band_prefix overflow when computing challenge"))?;
+        hasher.update(&[parity]);
         hasher.update(&self.group_pub_key[1..33]);
         hasher.update(&msg_hash);
 

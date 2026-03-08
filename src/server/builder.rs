@@ -9,8 +9,7 @@ use std::collections::HashMap;
 pub struct ServerBuilder {
     evm_signers: HashMap<String, Box<dyn Signer<EcdsaSignature> + 'static>>,
     xrpl_signers: HashMap<String, Box<dyn Signer<DerSignature> + 'static>>,
-    evm_pre_sign_hooks: Vec<Box<dyn PreSignHook>>,
-    xrpl_pre_sign_hooks: Vec<Box<dyn PreSignHook>>,
+    pre_sign_hooks: Vec<Box<dyn PreSignHook>>,
     tss_signature_verifier: Option<SignatureVerifier>,
 }
 
@@ -35,18 +34,11 @@ impl ServerBuilder {
         );
     }
 
-    pub fn with_evm_pre_sign_hook<P>(&mut self, pre_sign_hook: P)
+    pub fn with_pre_sign_hook<P>(&mut self, pre_sign_hook: P)
     where
         P: PreSignHook,
     {
-        self.evm_pre_sign_hooks.push(Box::new(pre_sign_hook));
-    }
-
-    pub fn with_xrpl_pre_sign_hook<P>(&mut self, pre_sign_hook: P)
-    where
-        P: PreSignHook,
-    {
-        self.xrpl_pre_sign_hooks.push(Box::new(pre_sign_hook));
+        self.pre_sign_hooks.push(Box::new(pre_sign_hook));
     }
 
     pub fn with_tss_signature_verifier(&mut self, verifier: SignatureVerifier) {
@@ -57,8 +49,7 @@ impl ServerBuilder {
         Server {
             evm_signers: self.evm_signers,
             xrpl_signers: self.xrpl_signers,
-            evm_pre_sign_hooks: self.evm_pre_sign_hooks,
-            xrpl_pre_sign_hooks: self.xrpl_pre_sign_hooks,
+            pre_sign_hooks: self.pre_sign_hooks,
             tss_signature_verifier: self.tss_signature_verifier,
         }
     }

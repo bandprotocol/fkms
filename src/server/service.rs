@@ -9,7 +9,6 @@ use crate::proto::fkms::v1::{
 };
 use crate::server::Server;
 use crate::signer::signature::Signature;
-use crate::verifier::tss::message::verify_message;
 use k256::sha2::Sha512;
 use sha3::Digest;
 use tonic::{Request, Response, Status};
@@ -24,36 +23,18 @@ impl FkmsService for Server {
     ) -> Result<Response<SignEvmResponse>, Status> {
         let sign_evm_request = request.into_inner();
 
-        let tss = sign_evm_request
-            .tss
-            .ok_or_else(|| Status::invalid_argument("tss field is required and cannot be null"))?;
-
-        // verify tss signature
-        if let Some(verifier) = &self.tss_signature_verifier {
-            verifier
-                .verify(&tss.message, &tss.random_addr, &tss.signature_s)
-                .map_err(|e| {
-                    error!("failed to verify tss signature: {:?}", e);
-                    Status::internal(format!("Failed to verify tss signature: {e}"))
-                })?;
-        }
-
         // decode tx, verify decoded prices, and tss message
         let evm_tx = decode_tx(&sign_evm_request.tx_message)
             .map_err(|e| Status::internal(format!("Failed to decode tx: {e}")))?;
+
         let decoded_tss_message = decode_tss_message(&evm_tx.tss.message)
             .map_err(|e| Status::internal(format!("Failed to decode TSS message: {}", e)))?;
         let signal_prices = decoded_tss_message
             .signal_prices()
             .map_err(|e| Status::internal(format!("Failed to get signal prices: {}", e)))?;
 
-        verify_message(&signal_prices, &tss.message).map_err(|e| {
-            error!("failed to verify tss message: {:?}", e);
-            Status::internal(format!("Failed to verify tss message: {e}"))
-        })?;
-
         // run pre sign hooks
-        for hook in &self.evm_pre_sign_hooks {
+        for hook in &self.pre_sign_hooks {
             hook.call(&signal_prices).await?;
         }
 
@@ -108,19 +89,15 @@ impl FkmsService for Server {
                 })?;
         }
 
-        // verify given prices and tss message
-        let prices: Vec<(String, u64)> = signer_payload
-            .signals
-            .iter()
-            .map(|s| (s.signal_id.clone(), s.price))
-            .collect();
-        verify_message(&prices, &tss.message).map_err(|e| {
-            error!("failed to verify xrpl message: {:?}", e);
-            Status::internal(format!("Failed to verify tss message: {e}"))
-        })?;
+        // extract prices from tss message
+        let decoded_tss_message = decode_tss_message(&tss.message)
+            .map_err(|e| Status::internal(format!("Failed to decode TSS message: {}", e)))?;
+        let prices = decoded_tss_message
+            .signal_prices()
+            .map_err(|e| Status::internal(format!("Failed to get signal prices: {}", e)))?;
 
         // run pre sign hooks
-        for hook in &self.xrpl_pre_sign_hooks {
+        for hook in &self.pre_sign_hooks {
             hook.call(&prices).await?;
         }
 
