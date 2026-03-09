@@ -158,9 +158,10 @@ impl FkmsService for Server {
         _request: Request<GetSignerAddressesRequest>,
     ) -> Result<Response<GetSignerAddressesResponse>, Status> {
         info!("Got get_signer_addresses request");
-        let response = GetSignerAddressesResponse {
-            addresses: self.evm_signers.keys().cloned().collect(),
-        };
+        let mut addresses = Vec::new();
+        addresses.extend(self.evm_signers.keys().cloned());
+        addresses.extend(self.xrpl_signers.keys().cloned());
+        let response = GetSignerAddressesResponse { addresses };
         Ok(Response::new(response))
     }
 }
