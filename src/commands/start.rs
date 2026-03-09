@@ -41,8 +41,11 @@ pub async fn start(path: PathBuf) -> anyhow::Result<()> {
     }
 
     // load tss public key
-    let tss_public_key = load_tss_public_key()?;
-    builder.with_tss_signature_verifier(SignatureVerifier::new(tss_public_key));
+    #[cfg(feature = "tss")]
+    {
+        let tss_public_key = load_tss_public_key()?;
+        builder.with_tss_signature_verifier(SignatureVerifier::new(tss_public_key));
+    }
 
     #[cfg(feature = "aws")]
     {
@@ -71,6 +74,7 @@ pub async fn start(path: PathBuf) -> anyhow::Result<()> {
 // Load TSS secp256k1 public key in 33-byte compressed SEC1 hex format
 // (1-byte prefix 0x02/0x03 + 32-byte x-coordinate), e.g.
 // 03235b757dbddd3c149327b5eb54b0cd3f522ef6c4976e57c336321444c1325b02
+#[cfg(feature = "tss")]
 pub fn load_tss_public_key() -> anyhow::Result<[u8; 33]> {
     let tss_pubkey =
         env::var("TSS_PUBLIC_KEY").map_err(|e| anyhow!("TSS_PUBLIC_KEY not set: {}", e))?;

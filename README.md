@@ -28,9 +28,9 @@ Before building and running `fkms`, ensure the following dependency is installed
       ```sh
       cargo install --path . --features aws
       ```
-    - Both local and AWS KMS support:
+    - Local, AWS, and TSS KMS support:
       ```sh
-      cargo install --path . --features local,aws
+      cargo install --path . --features local,aws,tss
       ```
    This will compile and install the fkms executable 
 
@@ -59,6 +59,7 @@ log_level = ""
 type = "private_key"
 env_variable = "PRIVATE_KEY_1"
 encoding = "hex"
+chain_type = "evm"
 
 [[signer_config.local_signer_configs]]
 type         = "mnemonic"
@@ -72,7 +73,7 @@ index = 0
 
 | Type          | Description                                    | Required Fields                                |
 | --------------| ---------------------------------------------- | -----------------------------------------------|
-| `private_key` | Load private key from an environment variable  | `env_variable`, `encoding`                     |
+| `private_key` | Load private key from an environment variable (Currently support only EVM) | `env_variable`, `encoding`                     |
 | `mnemonic`    | Load mnemonic from an environment variable     | `env_variable`, `coin_type`, `account`, `index`|
 
 ## Encoding Options
@@ -84,6 +85,7 @@ index = 0
 ```env
 PRIVATE_KEY_1=abc123456789deadbeef...
 MNEMONIC="test test test test test test test test test test test junk"
+TSS_PUBLIC_KEY=0306be2adaf05e8ffc701c9241d6e147fcd7ff4f72e1da6aacd7158fa2a3919354
 ```
 
 ## Usage
@@ -129,7 +131,6 @@ The gRPC API is defined in [`proto/fkms/v1/signer.proto`](proto/fkms/v1/signer.p
 message SignEvmRequest {
   string address = 1;
   bytes tx_message = 2;
-  Tss tss = 3;
 }
 ```
 
@@ -176,21 +177,11 @@ message GetSignerAddressesResponse {
 
 ```proto
 message XrplSignerPayload {
-  repeated Signal signals = 1;
-  string account = 2;
-  uint64 oracle_id = 3;
-  string fee = 4;
-  uint64 sequence = 5;
-  uint64 last_updated_time = 6;
-}
-```
-
-### Example: Signal
-
-```proto
-message Signal {
-  string signal_id = 1;
-  uint64 price = 2;
+  string account = 1;
+  uint64 oracle_id = 2;
+  string fee = 3;
+  uint64 sequence = 4;
+  uint64 last_updated_time = 5;
 }
 ```
 
