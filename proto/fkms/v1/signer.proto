@@ -33,11 +33,11 @@ message GetSignerAddressesResponse {
 }
 
 message XrplSignerPayload {
-  string account = 2;
-  uint64 oracle_id = 3;
-  string fee = 4;
-  uint64 sequence = 5;
-  uint64 last_updated_time = 6;
+  string account = 1;
+  uint64 oracle_id = 2;
+  string fee = 3;
+  uint64 sequence = 4;
+  uint64 last_updated_time = 5;
 }
 
 message Tss {
