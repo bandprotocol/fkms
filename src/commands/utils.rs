@@ -4,7 +4,6 @@ use crate::config::signer::local::{Encoding, LocalSignerConfig};
 use crate::signer::local::LocalSigner;
 use alloy_signer_local::MnemonicBuilder;
 use alloy_signer_local::coins_bip39::English;
-use anyhow::anyhow;
 use base64::Engine;
 use std::env;
 use std::path::PathBuf;
@@ -25,21 +24,17 @@ pub fn get_evm_local_signers_from_config(
                 encoding,
                 chain_type,
             } => {
-                if chain_type == &ChainType::Xrpl {
-                    return Err(anyhow!(
-                        "Invalid chain type for local signer with private key: {:?}",
-                        chain_type
-                    ));
+                if chain_type == &ChainType::Evm {
+                    let pk = env::var(env_variable)?;
+                    let pkb = match encoding {
+                        Encoding::Hex => hex::decode(pk)?,
+                        Encoding::Base64 => {
+                            let engine = base64::engine::general_purpose::STANDARD;
+                            engine.decode(pk)?
+                        }
+                    };
+                    signers.push(LocalSigner::new(&pkb, false)?);
                 }
-                let pk = env::var(env_variable)?;
-                let pkb = match encoding {
-                    Encoding::Hex => hex::decode(pk)?,
-                    Encoding::Base64 => {
-                        let engine = base64::engine::general_purpose::STANDARD;
-                        engine.decode(pk)?
-                    }
-                };
-                signers.push(LocalSigner::new(&pkb)?);
             }
             LocalSignerConfig::Mnemonic {
                 env_variable,
@@ -49,9 +44,9 @@ pub fn get_evm_local_signers_from_config(
             } => {
                 if *coin_type == 60 {
                     let mnemonic = env::var(env_variable)?;
-                    let signer =
-                        derive_signer_from_mnemonic(mnemonic, *coin_type, *account, *index)?;
-                    signers.push(signer);
+                    let pkb =
+                        derive_credential_from_mnemonic(mnemonic, *coin_type, *account, *index)?;
+                    signers.push(LocalSigner::new(&pkb, false)?);
                 }
             }
         }
@@ -74,20 +69,20 @@ pub fn get_xrpl_local_signers_from_config(
             && *coin_type == 144
         {
             let mnemonic = env::var(env_variable)?;
-            let signer = derive_signer_from_mnemonic(mnemonic, *coin_type, *account, *index)?;
-            signers.push(signer);
+            let pkb = derive_credential_from_mnemonic(mnemonic, *coin_type, *account, *index)?;
+            signers.push(LocalSigner::new(&pkb, true)?);
         }
     }
     Ok(signers)
 }
 
 #[cfg(feature = "local")]
-fn derive_signer_from_mnemonic(
+fn derive_credential_from_mnemonic(
     mnemonic: String,
     coin_type: u32,
     account: u32,
     index: u32,
-) -> anyhow::Result<LocalSigner> {
+) -> anyhow::Result<Vec<u8>> {
     let hd_path = format!("m/44'/{}'/{}'/0/{}", coin_type, account, index);
 
     let signer = MnemonicBuilder::<English>::default()
@@ -95,7 +90,5 @@ fn derive_signer_from_mnemonic(
         .derivation_path(&hd_path)?
         .build()?;
 
-    let pkb = signer.credential().to_bytes().to_vec();
-
-    Ok(LocalSigner::new(&pkb)?)
+    Ok(signer.credential().to_bytes().to_vec())
 }

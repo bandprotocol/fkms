@@ -8,31 +8,22 @@ use k256::elliptic_curve::sec1::ToEncodedPoint;
 // ECDSA Signer (secp256k1)
 pub struct LocalSigner {
     signing_key: EcdsaSigningKey,
-    compressed_ecdsa_public_key: Vec<u8>,
-    uncompressed_ecdsa_public_key: Vec<u8>,
+    ecdsa_public_key: Vec<u8>,
 }
 
 impl LocalSigner {
-    pub fn new(private_key: &[u8]) -> Result<Self, ecdsa::Error> {
+    pub fn new(private_key: &[u8], compressed_public_key: bool) -> Result<Self, ecdsa::Error> {
         let signing_key = EcdsaSigningKey::from_slice(private_key)?;
-        let compressed_ecdsa_public_key = signing_key
+        let ecdsa_public_key = signing_key
             .verifying_key()
             .as_affine()
-            .to_encoded_point(true)
-            .as_bytes()
-            .to_vec();
-
-        let uncompressed_ecdsa_public_key = signing_key
-            .verifying_key()
-            .as_affine()
-            .to_encoded_point(false)
+            .to_encoded_point(compressed_public_key)
             .as_bytes()
             .to_vec();
 
         Ok(LocalSigner {
             signing_key,
-            compressed_ecdsa_public_key,
-            uncompressed_ecdsa_public_key,
+            ecdsa_public_key,
         })
     }
 
@@ -44,12 +35,8 @@ impl LocalSigner {
         self.signing_key.sign_prehash(message)
     }
 
-    pub fn compressed_public_key(&self) -> &[u8] {
-        self.compressed_ecdsa_public_key.as_slice()
-    }
-
-    pub fn uncompressed_public_key(&self) -> &[u8] {
-        self.uncompressed_ecdsa_public_key.as_slice()
+    fn ecsda_public_key(&self) -> &[u8] {
+        self.ecdsa_public_key.as_slice()
     }
 }
 
@@ -60,7 +47,7 @@ impl Signer<EcdsaSignature> for LocalSigner {
     }
 
     fn public_key(&self) -> &[u8] {
-        self.uncompressed_ecdsa_public_key.as_slice()
+        self.ecsda_public_key()
     }
 }
 
@@ -71,7 +58,7 @@ impl Signer<DerSignature> for LocalSigner {
     }
 
     fn public_key(&self) -> &[u8] {
-        self.compressed_ecdsa_public_key.as_slice()
+        self.ecsda_public_key()
     }
 }
 
@@ -88,7 +75,7 @@ mod test {
     fn test_sign_ecdsa() {
         let pk = hex::decode("d430736144cbe3c083b22b8b5975eef970bf04336dda98748bbef1a3e5e5713a")
             .unwrap();
-        let signer = LocalSigner::new(&pk).unwrap();
+        let signer = LocalSigner::new(&pk, false).unwrap();
         let message = b"Hello, world!";
         let signature = hex::encode(
             signer
@@ -106,7 +93,7 @@ mod test {
     fn test_sign_der() {
         let pk = hex::decode("45ea1ad910df93d1a021a42f384aad55c7c65d565ad6b2203a4ba50418922a7b")
             .unwrap();
-        let signer = LocalSigner::new(&pk).unwrap();
+        let signer = LocalSigner::new(&pk, true).unwrap();
         let message = &Sha512::digest(b"Hello, world!")[..32];
         let signature = hex::encode(signer.sign_der(message).unwrap().to_vec());
         let expected = "304402203a3fcf5aadf9e26bc931fc54a924013413d80fb538c5048fc4e4c8dd2e6c178502202de7b72145515c0d23ed4f2bce9dd26541c26059557a607ccdcfee47d88cd1eb";

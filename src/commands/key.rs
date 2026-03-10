@@ -2,7 +2,10 @@ use crate::commands::utils::{
     get_config, get_evm_local_signers_from_config, get_xrpl_local_signers_from_config,
 };
 use crate::config::default_config_path;
-use crate::signer::{EvmSigner, XrplSigner};
+use crate::signer::local::LocalSigner;
+use crate::signer::signature::ecdsa::DerSignature;
+use crate::signer::signature::ecdsa::EcdsaSignature;
+use crate::signer::{EvmSigner, Signer, XrplSigner};
 use clap::{Args, Subcommand};
 use std::path::PathBuf;
 
@@ -40,21 +43,17 @@ fn list_keys(path: PathBuf) -> anyhow::Result<()> {
         let evm_signers = get_evm_local_signers_from_config(signer_configs)?;
         for local_signer in evm_signers {
             println!("--- EVM Signer ---");
-            println!(
-                "Public Key: {}",
-                hex::encode(local_signer.uncompressed_public_key())
-            );
+            let pk = <LocalSigner as Signer<EcdsaSignature>>::public_key(&local_signer);
+            println!("Public Key: {}", hex::encode(pk));
             println!("Address: {}", local_signer.evm_address());
         }
 
         let xrpl_signers = get_xrpl_local_signers_from_config(signer_configs)?;
         for local_signer in xrpl_signers {
             println!("--- XRPL Signer ---");
-            println!(
-                "Public Key: {}",
-                hex::encode(local_signer.compressed_public_key())
-            );
-            println!("XRPL Address: {}", local_signer.xrpl_address());
+            let pk = <LocalSigner as Signer<DerSignature>>::public_key(&local_signer);
+            println!("Public Key: {}", hex::encode(pk));
+            println!("Address: {}", local_signer.xrpl_address());
         }
     }
 
