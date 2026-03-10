@@ -51,8 +51,8 @@ pub async fn start(path: PathBuf) -> anyhow::Result<()> {
     // Load TSS secp256k1 public key in 33-byte compressed SEC1 hex format
     // (1-byte prefix 0x02/0x03 + 32-byte x-coordinate), e.g.
     // 03235b757dbddd3c149327b5eb54b0cd3f522ef6c4976e57c336321444c1325b02
-    if config.tss_config.enable_verify {
-        let tss_verifier = init_tss_verifier(config.tss_config.groups)?;
+    if config.tss.enable_verify {
+        let tss_verifier = init_tss_verifier(config.tss.groups)?;
         builder.with_tss_signature_verifier(tss_verifier);
     }
 

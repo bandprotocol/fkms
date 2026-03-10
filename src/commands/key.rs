@@ -1,6 +1,7 @@
 use crate::commands::utils::get_config;
 use crate::commands::utils::get_local_signers_from_config;
 use crate::config::default_config_path;
+use crate::config::signer::local::ChainType;
 use crate::signer::{EvmSigner, XrplSigner};
 use clap::{Args, Subcommand};
 use std::path::PathBuf;
@@ -35,7 +36,6 @@ fn list_keys(path: PathBuf) -> anyhow::Result<()> {
     // only run this if the local feature is enabled
     #[cfg(feature = "local")]
     {
-        use crate::config::signer::local::ChainType;
         let signer_configs = &config.signer_config.local_signer_configs;
         let signer_groups = get_local_signers_from_config(signer_configs)?;
         for (chain_type, signers) in signer_groups {

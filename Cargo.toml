@@ -46,12 +46,13 @@ rlp = "0.6.1"
 hex-literal = "1.1.0"
 tiny-keccak = { version = "2.0.2", features = ["keccak"] }
 serde_bytes = "0.11.19"
+serde_with = { version = "3.17.0", features = ["hex"] }
 
 [build-dependencies]
 tonic-build = { version = "0.13.1", features = ["prost"] }
 
 [features]
-default = ["local", "aws"]
+default = ["local"]
 all = ["local", "aws", "middleware"]
 local = ["base64"]
 aws = ["aws-sdk-kms", "aws-config"]

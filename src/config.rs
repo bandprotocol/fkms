@@ -15,7 +15,7 @@ pub struct Config {
     pub server: ServerConfig,
     pub signer_config: SignerConfig,
     pub logging: LoggingConfig,
-    pub tss_config: TssConfig,
+    pub tss: TssConfig,
 }
 
 pub fn default_config_path() -> PathBuf {
