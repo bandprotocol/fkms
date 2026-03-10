@@ -13,6 +13,7 @@ pub enum LocalSignerConfig {
         coin_type: u32,
         account: u32,
         index: u32,
+        chain_type: ChainType,
     },
 }
 
@@ -23,7 +24,7 @@ pub enum Encoding {
     Base64,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "snake_case")]
 pub enum ChainType {
     Evm,

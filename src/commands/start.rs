@@ -1,6 +1,6 @@
-use crate::commands::utils::{
-    get_config, get_evm_local_signers_from_config, get_xrpl_local_signers_from_config,
-};
+use crate::commands::utils::get_config;
+use crate::commands::utils::get_local_signers_from_config;
+use crate::config::signer::local::ChainType;
 use crate::config::tss::group::Group;
 use crate::proto;
 use crate::proto::fkms::v1::fkms_service_server::FkmsServiceServer;
@@ -27,16 +27,24 @@ pub async fn start(path: PathBuf) -> anyhow::Result<()> {
     #[cfg(feature = "local")]
     {
         let signer_configs = &config.signer_config.local_signer_configs;
-        let evm_signers = get_evm_local_signers_from_config(signer_configs)?;
-        for signer in evm_signers {
-            info!("initialized evm local signer: {}", signer.evm_address());
-            builder.with_evm_signer(signer);
-        }
-
-        let xrpl_signers = get_xrpl_local_signers_from_config(signer_configs)?;
-        for signer in xrpl_signers {
-            info!("initialized xrpl local signer: {}", signer.xrpl_address());
-            builder.with_xrpl_signer(signer);
+        let signer_groups = get_local_signers_from_config(signer_configs)?;
+        for (chain_type, signers) in signer_groups {
+            match chain_type {
+                ChainType::Evm => {
+                    for signer in signers {
+                        info!("initialized local evm signer: {}", signer.evm_address());
+                        let evm_address = signer.evm_address();
+                        builder.with_signer(evm_address, signer);
+                    }
+                }
+                ChainType::Xrpl => {
+                    for signer in signers {
+                        info!("initialized local xrpl signer: {}", signer.xrpl_address());
+                        let xrpl_address = signer.xrpl_address();
+                        builder.with_signer(xrpl_address, signer);
+                    }
+                }
+            }
         }
     }
 

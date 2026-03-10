@@ -10,7 +10,7 @@ service FkmsService {
 
 message SignEvmRequest {
   string address = 1;
-  bytes tx_message = 2;
+  bytes message = 2;
 }
 
 message SignEvmResponse {
@@ -37,7 +37,6 @@ message XrplSignerPayload {
   uint64 oracle_id = 2;
   string fee = 3;
   uint64 sequence = 4;
-  uint64 last_updated_time = 5;
 }
 
 message Tss {

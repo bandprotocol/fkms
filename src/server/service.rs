@@ -8,7 +8,6 @@ use crate::proto::fkms::v1::{
     SignXrplRequest, SignXrplResponse,
 };
 use crate::server::Server;
-use crate::signer::signature::Signature;
 use k256::sha2::Sha512;
 use sha3::Digest;
 use tonic::{Request, Response, Status};
@@ -24,30 +23,25 @@ impl FkmsService for Server {
         let sign_evm_request = request.into_inner();
 
         // decode tx, verify decoded prices, and tss message
-        let evm_tx = decode_tx(&sign_evm_request.tx_message)
+        let evm_tx = decode_tx(&sign_evm_request.message)
             .map_err(|e| Status::internal(format!("Failed to decode tx: {e}")))?;
 
         let decoded_tss_message = decode_tss_message(&evm_tx.tss.message)
             .map_err(|e| Status::internal(format!("Failed to decode TSS message: {}", e)))?;
-        let signal_prices = decoded_tss_message
-            .signal_prices()
-            .map_err(|e| Status::internal(format!("Failed to get signal prices: {}", e)))?;
 
         // run pre sign hooks
         for hook in &self.pre_sign_hooks {
-            hook.call(&signal_prices).await?;
+            hook.call(decoded_tss_message.packet.clone()).await?;
         }
 
-        match self.evm_signers.get(&sign_evm_request.address) {
+        match self.signers.get(&sign_evm_request.address) {
             Some(signer) => {
                 match signer
-                    .sign(&sha3::Keccak256::digest(&sign_evm_request.tx_message))
+                    .sign_ecdsa(&sha3::Keccak256::digest(&sign_evm_request.message))
                     .await
                 {
                     Ok(s) => {
-                        let response = SignEvmResponse {
-                            signature: s.into_vec(),
-                        };
+                        let response = SignEvmResponse { signature: s };
                         info!("successfully signed evm message");
                         Ok(Response::new(response))
                     }
@@ -92,25 +86,28 @@ impl FkmsService for Server {
         // extract prices from tss message
         let decoded_tss_message = decode_tss_message(&tss.message)
             .map_err(|e| Status::internal(format!("Failed to decode TSS message: {}", e)))?;
-        let prices = decoded_tss_message
-            .signal_prices()
-            .map_err(|e| Status::internal(format!("Failed to get signal prices: {}", e)))?;
+        let tunnel_packet = decoded_tss_message.packet;
 
         // run pre sign hooks
         for hook in &self.pre_sign_hooks {
-            hook.call(&prices).await?;
+            hook.call(tunnel_packet.clone()).await?;
         }
 
-        match self.xrpl_signers.get(&signer_payload.account) {
+        match self.signers.get(&signer_payload.account) {
             Some(signer) => {
-                let public_key = hex::encode(signer.public_key());
+                let public_key = hex::encode(signer.public_key(true));
+                let signals: Vec<(String, u64)> = tunnel_packet
+                    .signals
+                    .iter()
+                    .map(|sp| (sp.signal.clone(), sp.price))
+                    .collect();
                 let mut signing_payload = create_signing_payload(
-                    &prices,
+                    &signals,
                     signer_payload.account,
                     signer_payload.oracle_id,
                     signer_payload.fee,
                     signer_payload.sequence,
-                    signer_payload.last_updated_time,
+                    tunnel_packet.timestamp as u64,
                     public_key,
                 )
                 .map_err(|e| {
@@ -125,9 +122,8 @@ impl FkmsService for Server {
 
                 // Sign with sha512half
                 let digest = &Sha512::digest(&tx)[..32];
-                match signer.sign(digest).await {
-                    Ok(s) => {
-                        let signature = s.into_vec();
+                match signer.sign_der(digest).await {
+                    Ok(signature) => {
                         let tx_blob =
                             encode_with_signature(&mut signing_payload, hex::encode(signature))
                                 .map_err(|e| {
@@ -158,10 +154,9 @@ impl FkmsService for Server {
         _request: Request<GetSignerAddressesRequest>,
     ) -> Result<Response<GetSignerAddressesResponse>, Status> {
         info!("Got get_signer_addresses request");
-        let mut addresses = Vec::new();
-        addresses.extend(self.evm_signers.keys().cloned());
-        addresses.extend(self.xrpl_signers.keys().cloned());
-        let response = GetSignerAddressesResponse { addresses };
+        let response = GetSignerAddressesResponse {
+            addresses: self.signers.keys().cloned().collect(),
+        };
         Ok(Response::new(response))
     }
 }

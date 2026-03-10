@@ -40,8 +40,20 @@ sol! {
 }
 
 pub struct TssMessage {
-    encoding_type: EncodingType,
-    packet: Packet,
+    pub packet: TunnelPacket,
+}
+
+#[derive(Clone)]
+pub struct TunnelPacket {
+    pub sequence: u64,
+    pub signals: Vec<TunnelSignalPrice>,
+    pub timestamp: i64,
+}
+
+#[derive(Clone)]
+pub struct TunnelSignalPrice {
+    pub signal: String,
+    pub price: u64,
 }
 
 pub fn decode_tss_message(tss_message: &[u8]) -> anyhow::Result<TssMessage> {
@@ -69,45 +81,43 @@ pub fn decode_tss_message(tss_message: &[u8]) -> anyhow::Result<TssMessage> {
     let packet: Packet =
         SolValue::abi_decode_validate(packet_data).with_context(|| "Failed to decode abi")?;
 
+    let tunnel_packet = decode_packet(packet, &encoding_type)?;
+
     Ok(TssMessage {
-        encoding_type,
-        packet,
+        packet: tunnel_packet,
     })
 }
 
-impl TssMessage {
-    pub fn signal_prices(&self) -> anyhow::Result<Vec<(String, u64)>> {
-        // Validate encoding type and determine if tick encoding is used
-        let is_tick_encoding = self.encoding_type == EncodingType::Tick;
+fn decode_packet(packet: Packet, encoding_type: &EncodingType) -> anyhow::Result<TunnelPacket> {
+    let is_tick_encoding = *encoding_type == EncodingType::Tick;
 
-        let mut prices = Vec::with_capacity(self.packet.signals.len());
+    let mut signals = Vec::with_capacity(packet.signals.len());
 
-        for signal_price in &self.packet.signals {
-            // trim leading 0x00 bytes
-            let start = signal_price
-                .signal
-                .iter()
-                .position(|&b| b != 0)
-                .unwrap_or(signal_price.signal.len());
-            let signal_id_bytes = &signal_price.signal[start..];
+    for sp in packet.signals {
+        // Trim leading 0x00 bytes from the fixed-width bytes32 signal ID
+        let raw: [u8; 32] = sp.signal.into();
+        let start = raw.iter().position(|&b| b != 0).unwrap_or(raw.len());
+        let signal_id = str::from_utf8(&raw[start..])
+            .with_context(|| "Failed to parse signal_id due to invalid utf8")?
+            .to_string();
 
-            let signal_id = str::from_utf8(signal_id_bytes)
-                .with_context(|| "Failed to parse signal_id due to invalid utf8")?
-                .to_string();
+        let price = if is_tick_encoding && sp.price != 0 {
+            tick_to_price(sp.price)?
+        } else {
+            sp.price
+        };
 
-            let price = if is_tick_encoding && signal_price.price != 0 {
-                // Convert tick to price
-                tick_to_price(signal_price.price)?
-            } else {
-                // Use price as-is for fixed point encoding and unavailable case
-                signal_price.price
-            };
-
-            prices.push((signal_id, price));
-        }
-
-        Ok(prices)
+        signals.push(TunnelSignalPrice {
+            signal: signal_id,
+            price,
+        });
     }
+
+    Ok(TunnelPacket {
+        sequence: packet.sequence,
+        signals,
+        timestamp: packet.timestamp,
+    })
 }
 
 /// Converts the tick to a price with 10^9 precision.
@@ -236,14 +246,14 @@ mod tests {
         tss_message.extend_from_slice(&packet_encoded);
 
         // Test extraction
-        let result = decode_tss_message(&tss_message).expect("Failed to extract prices");
+        let result = decode_tss_message(&tss_message).expect("Failed to decode tss message");
 
-        let prices = result.signal_prices().expect("Failed to extract prices");
-        assert_eq!(prices.len(), 2);
-        assert_eq!(prices[0].0, "BTC-USD");
-        assert_eq!(prices[0].1, 50000000000000u64);
-        assert_eq!(prices[1].0, "ETH-USD");
-        assert_eq!(prices[1].1, 3000000000000u64);
+        let signals = &result.packet.signals;
+        assert_eq!(signals.len(), 2);
+        assert_eq!(signals[0].signal, "BTC-USD");
+        assert_eq!(signals[0].price, 50000000000000u64);
+        assert_eq!(signals[1].signal, "ETH-USD");
+        assert_eq!(signals[1].price, 3000000000000u64);
     }
 
     #[test]
@@ -283,15 +293,15 @@ mod tests {
         tss_message.extend_from_slice(&packet_encoded);
 
         // Test extraction
-        let result = decode_tss_message(&tss_message).expect("Failed to extract prices");
+        let result = decode_tss_message(&tss_message).expect("Failed to decode tss message");
 
-        let prices = result.signal_prices().expect("Failed to extract prices");
-        assert_eq!(prices.len(), 2);
-        assert_eq!(prices[0].0, "USDC-USD");
-        assert_eq!(prices[0].1, 1_000_000_000u64); // Should be exactly 1.0 with 10^9 precision
-        assert_eq!(prices[1].0, "DAI-USD");
+        let signals = &result.packet.signals;
+        assert_eq!(signals.len(), 2);
+        assert_eq!(signals[0].signal, "USDC-USD");
+        assert_eq!(signals[0].price, 1_000_000_000u64); // Should be exactly 1.0 with 10^9 precision
+        assert_eq!(signals[1].signal, "DAI-USD");
         // The second price should be slightly higher than 1.0 due to positive tick
-        assert!(prices[1].1 > 1_000_000_000u64);
+        assert!(signals[1].price > 1_000_000_000u64);
     }
 
     #[test]
@@ -356,13 +366,11 @@ mod tests {
         tss_message.extend_from_slice(&ENCODER_TICK_ABI_PREFIX);
         tss_message.extend_from_slice(&packet_encoded);
 
-        // Test should return error for tick exceeding MAX_TICK bound
-        let tss_message = decode_tss_message(&tss_message).expect("Failed to decode TSS message");
-
-        let prices = tss_message.signal_prices();
-        assert!(prices.is_err());
+        // decode_tss_message now fails eagerly when tick is invalid
+        let result = decode_tss_message(&tss_message);
+        assert!(result.is_err());
         assert!(
-            prices
+            result
                 .err()
                 .unwrap()
                 .to_string()
@@ -395,10 +403,9 @@ mod tests {
         tss_message.extend_from_slice(&ENCODER_TICK_ABI_PREFIX);
         tss_message.extend_from_slice(&packet_encoded);
 
-        // Test should return error for price rounding to zero
-        let tss_message = decode_tss_message(&tss_message).expect("Failed to decode TSS message");
-        let prices = tss_message.signal_prices();
-        assert!(prices.is_err());
-        assert!(prices.err().unwrap().to_string().contains("rounds to 0"));
+        // decode_tss_message now fails eagerly when tick produces price of 0
+        let result = decode_tss_message(&tss_message);
+        assert!(result.is_err());
+        assert!(result.err().unwrap().to_string().contains("rounds to 0"));
     }
 }

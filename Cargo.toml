@@ -51,7 +51,7 @@ serde_bytes = "0.11.19"
 tonic-build = { version = "0.13.1", features = ["prost"] }
 
 [features]
-default = ["local"]
+default = ["local", "aws"]
 all = ["local", "aws", "middleware"]
 local = ["base64"]
 aws = ["aws-sdk-kms", "aws-config"]

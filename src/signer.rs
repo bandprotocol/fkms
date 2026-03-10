@@ -1,5 +1,3 @@
-use crate::signer::signature::Signature;
-use crate::signer::signature::ecdsa::{DerSignature, EcdsaSignature};
 use k256::EncodedPoint;
 use k256::sha2::{Digest, Sha256};
 use ripemd::Ripemd160;
@@ -11,12 +9,14 @@ pub mod local;
 pub mod signature;
 
 #[async_trait::async_trait]
-pub trait Signer<S: Signature>: Send + Sync + 'static {
+pub trait Signer: Send + Sync + 'static {
     // TODO: Change to use custom error instead of anyhow.
     // For purpose of development anyhow will be used until other providers are complete
-    async fn sign(&self, message: &[u8]) -> anyhow::Result<S>;
+    async fn sign_ecdsa(&self, message: &[u8]) -> anyhow::Result<Vec<u8>>;
 
-    fn public_key(&self) -> &[u8];
+    async fn sign_der(&self, message: &[u8]) -> anyhow::Result<Vec<u8>>;
+
+    fn public_key(&self, compressed: bool) -> &[u8];
 }
 
 pub trait EvmSigner: Send + Sync + 'static {
@@ -27,21 +27,15 @@ pub trait XrplSigner: Send + Sync + 'static {
     fn xrpl_address(&self) -> String;
 }
 
-impl<T> EvmSigner for T
-where
-    T: Signer<EcdsaSignature>,
-{
+impl<T: Signer> EvmSigner for T {
     fn evm_address(&self) -> String {
-        public_key_to_evm_address(self.public_key())
+        public_key_to_evm_address(self.public_key(false))
     }
 }
 
-impl<T> XrplSigner for T
-where
-    T: Signer<DerSignature>,
-{
+impl<T: Signer> XrplSigner for T {
     fn xrpl_address(&self) -> String {
-        public_key_to_xrpl_address(self.public_key())
+        public_key_to_xrpl_address(self.public_key(true))
     }
 }
 

@@ -1,37 +1,23 @@
 use crate::server::Server;
 use crate::server::pre_sign::PreSignHook;
-use crate::signer::signature::ecdsa::{DerSignature, EcdsaSignature};
-use crate::signer::{EvmSigner, Signer, XrplSigner};
+use crate::signer::Signer;
 use crate::verifier::tss::signature::SignatureVerifier;
 use std::collections::HashMap;
 
 #[derive(Default)]
 pub struct ServerBuilder {
-    evm_signers: HashMap<String, Box<dyn Signer<EcdsaSignature> + 'static>>,
-    xrpl_signers: HashMap<String, Box<dyn Signer<DerSignature> + 'static>>,
+    signers: HashMap<String, Box<dyn Signer + 'static>>,
     pre_sign_hooks: Vec<Box<dyn PreSignHook>>,
     tss_signature_verifier: Option<SignatureVerifier>,
 }
 
 impl ServerBuilder {
-    pub fn with_evm_signer<T>(&mut self, signer: T)
+    pub fn with_signer<T>(&mut self, address: String, signer: T)
     where
-        T: Signer<EcdsaSignature> + EvmSigner,
+        T: Signer,
     {
-        self.evm_signers.insert(
-            signer.evm_address(),
-            Box::new(signer) as Box<dyn Signer<EcdsaSignature> + 'static>,
-        );
-    }
-
-    pub fn with_xrpl_signer<T>(&mut self, signer: T)
-    where
-        T: Signer<DerSignature> + XrplSigner,
-    {
-        self.xrpl_signers.insert(
-            signer.xrpl_address(),
-            Box::new(signer) as Box<dyn Signer<DerSignature> + 'static>,
-        );
+        self.signers
+            .insert(address, Box::new(signer) as Box<dyn Signer + 'static>);
     }
 
     pub fn with_pre_sign_hook<P>(&mut self, pre_sign_hook: P)
@@ -47,8 +33,7 @@ impl ServerBuilder {
 
     pub fn build(self) -> Server {
         Server {
-            evm_signers: self.evm_signers,
-            xrpl_signers: self.xrpl_signers,
+            signers: self.signers,
             pre_sign_hooks: self.pre_sign_hooks,
             tss_signature_verifier: self.tss_signature_verifier,
         }
