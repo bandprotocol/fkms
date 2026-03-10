@@ -1,13 +1,13 @@
 use crate::commands::utils::{
     get_config, get_evm_local_signers_from_config, get_xrpl_local_signers_from_config,
 };
+use crate::config::tss::group::Group;
 use crate::proto;
 use crate::proto::fkms::v1::fkms_service_server::FkmsServiceServer;
 use crate::server::builder::ServerBuilder;
 use crate::signer::{EvmSigner, XrplSigner};
 use crate::verifier::tss::signature::SignatureVerifier;
 use anyhow::anyhow;
-use std::env;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -40,11 +40,12 @@ pub async fn start(path: PathBuf) -> anyhow::Result<()> {
         }
     }
 
-    // load tss public key
-    #[cfg(feature = "tss")]
-    {
-        let tss_public_key = load_tss_public_key()?;
-        builder.with_tss_signature_verifier(SignatureVerifier::new(tss_public_key));
+    // Load TSS secp256k1 public key in 33-byte compressed SEC1 hex format
+    // (1-byte prefix 0x02/0x03 + 32-byte x-coordinate), e.g.
+    // 03235b757dbddd3c149327b5eb54b0cd3f522ef6c4976e57c336321444c1325b02
+    if config.tss_config.enable_verify {
+        let tss_verifier = init_tss_verifier(config.tss_config.groups)?;
+        builder.with_tss_signature_verifier(tss_verifier);
     }
 
     #[cfg(feature = "aws")]
@@ -71,18 +72,10 @@ pub async fn start(path: PathBuf) -> anyhow::Result<()> {
     Ok(())
 }
 
-// Load TSS secp256k1 public key in 33-byte compressed SEC1 hex format
-// (1-byte prefix 0x02/0x03 + 32-byte x-coordinate), e.g.
-// 03235b757dbddd3c149327b5eb54b0cd3f522ef6c4976e57c336321444c1325b02
-#[cfg(feature = "tss")]
-pub fn load_tss_public_key() -> anyhow::Result<[u8; 33]> {
-    let tss_pubkey =
-        env::var("TSS_PUBLIC_KEY").map_err(|e| anyhow!("TSS_PUBLIC_KEY not set: {}", e))?;
-    let bytes = hex::decode(tss_pubkey).map_err(|e| anyhow!("Invalid hex string: {}", e))?;
-
-    let array: [u8; 33] = bytes
-        .try_into()
-        .map_err(|v: Vec<u8>| anyhow!("Invalid length: expected 33 bytes, got {}", v.len()))?;
-
-    Ok(array)
+fn init_tss_verifier(groups: Vec<Group>) -> anyhow::Result<SignatureVerifier> {
+    if groups.is_empty() {
+        return Err(anyhow!("No TSS groups configured"));
+    }
+    let tss_verifier = SignatureVerifier::new(groups);
+    Ok(tss_verifier)
 }

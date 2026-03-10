@@ -82,7 +82,7 @@ impl FkmsService for Server {
         // verify tss signature
         if let Some(verifier) = &self.tss_signature_verifier {
             verifier
-                .verify(&tss.message, &tss.random_addr, &tss.signature_s)
+                .verify_signature(&tss.message, &tss.random_addr, &tss.signature_s)
                 .map_err(|e| {
                     error!("failed to verify tss message: {:?}", e);
                     Status::internal(format!("Failed to verify tss signature: {e}"))

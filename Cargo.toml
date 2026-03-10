@@ -44,15 +44,15 @@ alloy-primitives = "1.5.4"
 alloy-sol-types = "1.5.4"
 rlp = "0.6.1"
 hex-literal = "1.1.0"
-tiny-keccak = { version = "2.0.2", features = ["keccak"], optional = true }
+tiny-keccak = { version = "2.0.2", features = ["keccak"] }
+serde_bytes = "0.11.19"
 
 [build-dependencies]
 tonic-build = { version = "0.13.1", features = ["prost"] }
 
 [features]
-default = ["local", "tss"]
+default = ["local"]
 all = ["local", "aws", "middleware"]
 local = ["base64"]
 aws = ["aws-sdk-kms", "aws-config"]
 middleware = ["tower", "sea-orm"]
-tss = ["tiny-keccak"]
