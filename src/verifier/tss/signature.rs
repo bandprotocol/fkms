@@ -34,15 +34,15 @@ impl SignatureVerifier {
         for group in &self.groups {
             // check is expired
             if current_time > group.expired_time {
-                warn!("tss Group is expired");
+                warn!("TSS group is expired");
                 continue;
             }
             match Self::verify(group.public_key, tss_message, random_addr, signature_s) {
                 Ok(_) => return Ok(()),
-                Err(e) => warn!("failed to verify tss signature: {}", e),
+                Err(e) => warn!("failed to verify TSS signature: {}", e),
             }
         }
-        Err(anyhow!("All Tss verification failed"))
+        Err(anyhow!("All TSS verification failed"))
     }
 
     fn verify(

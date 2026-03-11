@@ -8,9 +8,13 @@ pub fn create_signing_payload(
     oracle_id: u64,
     fee: &str,
     sequence: u64,
-    last_updated_time: u64,
+    last_update_time: i64,
     signing_pub_key: &str,
 ) -> anyhow::Result<Value> {
+    let last_update_time: u64 = last_update_time
+        .try_into()
+        .map_err(|_| anyhow::anyhow!("Timestamp must be non-negative"))?;
+
     Ok(json!(
         {
             // TransactionType: 51 (OracleSet)
@@ -19,7 +23,7 @@ pub fn create_signing_payload(
             "OracleDocumentID": oracle_id,
             "Provider": str_to_hex("Band Protocol", None)?,
             "AssetClass": str_to_hex("Currency", None)?,
-            "LastUpdateTime": last_updated_time,
+            "LastUpdateTime": last_update_time,
             "PriceDataSeries": signals
                 .iter()
                 .map(|(signal, price)| create_price_data(signal, price))

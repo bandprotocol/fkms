@@ -116,7 +116,7 @@ impl FkmsService for Server {
                     signer_payload.oracle_id,
                     &signer_payload.fee,
                     signer_payload.sequence,
-                    tunnel_packet.timestamp as u64,
+                    tunnel_packet.timestamp,
                     &public_key,
                 )
                 .map_err(|e| {
