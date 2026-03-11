@@ -33,11 +33,11 @@ impl SignatureVerifier {
 
         for group in &self.groups {
             // check is expired
-            if let Some(expired_time) = group.expired_time {
-                if current_time > expired_time {
-                    warn!("TSS group is expired");
-                    continue;
-                }
+            if let Some(expired_time) = group.expired_time
+                && current_time > expired_time
+            {
+                warn!("TSS group is expired");
+                continue;
             }
             match Self::verify(group.public_key, tss_message, random_addr, signature_s) {
                 Ok(_) => return Ok(()),
