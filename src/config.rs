@@ -15,7 +15,6 @@ pub struct Config {
     pub server: ServerConfig,
     pub signer_config: SignerConfig,
     pub logging: LoggingConfig,
-    #[serde(default)]
     pub tss: TssConfig,
 }
 

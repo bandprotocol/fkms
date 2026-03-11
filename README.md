@@ -67,6 +67,13 @@ env_variable = "MNEMONIC_1"
 coin_type = 60
 account = 0
 index = 0
+
+[tss]
+enable_verify = true
+
+[[tss.groups]]
+public_key = "0232a786de4c99679f10fb9a1c94d17737739e413bef385a2f8a26f901a40fdc8b"
+expired_time = 1234567890
 ```
 
 ### Supported Local Signer Types
@@ -129,7 +136,7 @@ The gRPC API is defined in [`proto/fkms/v1/signer.proto`](proto/fkms/v1/signer.p
 ```proto
 message SignEvmRequest {
   string address = 1;
-  bytes tx_message = 2;
+  bytes message = 2;
 }
 ```
 

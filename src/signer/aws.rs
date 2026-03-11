@@ -83,10 +83,7 @@ impl Signer for AwsSigner {
                 let recoverable_signature: EcdsaSignature = (signature, recovery_id);
                 Ok(recoverable_signature.into_vec())
             }
-            ChainType::Xrpl => {
-                // XRPL uses DER signature
-                Ok(signature_blob.into_inner())
-            }
+            _ => Err(anyhow!("Unsupported Chain Type")),
         }
     }
 

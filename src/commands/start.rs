@@ -1,6 +1,5 @@
 use crate::commands::utils::get_config;
 use crate::commands::utils::get_local_signers_from_config;
-use crate::config::signer::local::ChainType;
 use crate::config::tss::group::Group;
 use crate::proto;
 use crate::proto::fkms::v1::fkms_service_server::FkmsServiceServer;
@@ -29,19 +28,13 @@ pub async fn start(path: PathBuf) -> anyhow::Result<()> {
         let signer_configs = &config.signer_config.local_signer_configs;
         let signer_groups = get_local_signers_from_config(signer_configs)?;
         for (chain_type, signers) in signer_groups {
-            match chain_type {
-                ChainType::Evm => {
-                    for signer in signers {
-                        info!("initialized local evm signer: {}", signer.address());
-                        builder.with_signer(signer);
-                    }
-                }
-                ChainType::Xrpl => {
-                    for signer in signers {
-                        info!("initialized local xrpl signer: {}", signer.address());
-                        builder.with_signer(signer);
-                    }
-                }
+            for signer in signers {
+                info!(
+                    "initialized local {:?} signer: {}",
+                    chain_type,
+                    signer.address()
+                );
+                builder.with_signer(signer);
             }
         }
     }

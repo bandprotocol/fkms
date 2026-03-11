@@ -1,7 +1,6 @@
 use crate::commands::utils::get_config;
 use crate::commands::utils::get_local_signers_from_config;
 use crate::config::default_config_path;
-use crate::config::signer::local::ChainType;
 use crate::signer::Signer;
 use clap::{Args, Subcommand};
 use std::path::PathBuf;
