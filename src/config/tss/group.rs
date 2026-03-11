@@ -6,5 +6,5 @@ use serde_with::{hex::Hex, serde_as};
 pub struct Group {
     #[serde_as(as = "Hex")]
     pub public_key: [u8; 33],
-    pub expired_time: u64,
+    pub expired_time: Option<u64>,
 }

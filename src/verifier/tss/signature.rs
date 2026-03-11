@@ -33,16 +33,25 @@ impl SignatureVerifier {
 
         for group in &self.groups {
             // check is expired
-            if current_time > group.expired_time {
-                warn!("TSS group is expired");
+            if let Some(expired_time) = group.expired_time
+                && current_time > expired_time
+            {
+                warn!("TSS group is expired: {}", hex::encode(group.public_key));
                 continue;
             }
             match Self::verify(group.public_key, tss_message, random_addr, signature_s) {
                 Ok(_) => return Ok(()),
-                Err(e) => warn!("failed to verify TSS signature: {}", e),
+                Err(e) => warn!(
+                    "failed to verify TSS signature: {}, {}",
+                    hex::encode(group.public_key),
+                    e
+                ),
             }
         }
-        Err(anyhow!("All TSS verification failed"))
+        Err(anyhow!(
+            "All TSS verification failed: {} groups",
+            self.groups.len()
+        ))
     }
 
     fn verify(
@@ -190,7 +199,7 @@ mod tests {
 
         let verifier = SignatureVerifier::new(vec![Group {
             public_key: group_pk,
-            expired_time: u64::MAX,
+            expired_time: None,
         }]);
 
         // 2. Prepare the Inputs
@@ -215,12 +224,42 @@ mod tests {
         // If parity was 28 (even), prefix is 0x02.
         let mut group_pk = [0u8; 33];
         group_pk.copy_from_slice(&hex!(
+            "030B03A4E74E06E18DE6BFD16A06E6401BC1FE74A983817C4AC3C1E2F4048E0A4C"
+        ));
+
+        let verifier = SignatureVerifier::new(vec![Group {
+            public_key: group_pk,
+            expired_time: Some(u64::MAX),
+        }]);
+
+        // 2. Prepare the Inputs
+        let raw_data = hex!("64617461");
+
+        let r_address = hex!("c53ec7134bad7bca43a34b6a0cf9eb1daa531d3e");
+        let signature_s = hex!("DF8DE9F4F2A046EB25EC45194AD2ED4B3D2339BAEDA82C97DD1AF02CDD63F98F");
+
+        // 3. Execution
+        let result = verifier.verify_signature(&raw_data, &r_address, &signature_s);
+
+        assert!(
+            result.is_ok(),
+            "Verification failed! Check if the group_pk prefix (0x02/0x03) matches the Go source."
+        );
+    }
+
+    #[test]
+    fn test_band_tss_verification_3() {
+        // 1. Setup the Group Public Key
+        // Based on your snippet: Prefix 0x02 or 0x03 (compressed) + X coordinate
+        // If parity was 28 (even), prefix is 0x02.
+        let mut group_pk = [0u8; 33];
+        group_pk.copy_from_slice(&hex!(
             "0306be2adaf05e8ffc701c9241d6e147fcd7ff4f72e1da6aacd7158fa2a3919354"
         ));
 
         let verifier = SignatureVerifier::new(vec![Group {
             public_key: group_pk,
-            expired_time: u64::MAX,
+            expired_time: Some(u64::MAX),
         }]);
 
         // 2. Prepare the Inputs
