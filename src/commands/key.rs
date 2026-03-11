@@ -40,10 +40,7 @@ fn list_keys(path: PathBuf) -> anyhow::Result<()> {
         let signer_groups = get_local_signers_from_config(signer_configs)?;
         for (chain_type, signers) in signer_groups {
             for signer in signers {
-                match chain_type {
-                    ChainType::Evm => println!("EVM Address: {}", signer.address()),
-                    ChainType::Xrpl => println!("XRPL Address: {}", signer.address()),
-                }
+                println!("{:?} Address: {}", chain_type, signer.address());
             }
         }
     }
