@@ -4,12 +4,12 @@ use xrpl::core::binarycodec;
 
 pub fn create_signing_payload(
     signals: &[(String, u64)],
-    account: String,
+    account: &str,
     oracle_id: u64,
-    fee: String,
+    fee: &str,
     sequence: u64,
     last_updated_time: u64,
-    signing_pub_key: String,
+    signing_pub_key: &str,
 ) -> anyhow::Result<Value> {
     Ok(json!(
         {
@@ -137,12 +137,12 @@ mod tests {
 
         let result = create_signing_payload(
             &signals,
-            "rpJ8fpF16aB8a4rmhkZNaXCWq3zweEzKrB".to_string(),
+            "rpJ8fpF16aB8a4rmhkZNaXCWq3zweEzKrB",
             869,
-            "10".to_string(),
+            "10",
             14580274,
             last_update,
-            "02d5a397a10de2c485fa5592ffd86a7b5744bc221e24f71196acd32eb66b14264c".to_string(),
+            "02d5a397a10de2c485fa5592ffd86a7b5744bc221e24f71196acd32eb66b14264c",
         );
 
         assert!(

@@ -9,17 +9,19 @@ use k256::EncodedPoint;
 use k256::sha2::{Digest, Sha256};
 use ripemd::Ripemd160;
 
+use crate::config::signer::local::ChainType;
+
 #[async_trait::async_trait]
 pub trait Signer: Send + Sync + 'static {
     // TODO: Change to use custom error instead of anyhow.
     // For purpose of development anyhow will be used until other providers are complete
-    async fn sign_ecdsa(&self, message: &[u8]) -> anyhow::Result<Vec<u8>>;
-
-    async fn sign_der(&self, message: &[u8]) -> anyhow::Result<Vec<u8>>;
+    async fn sign(&self, message: &[u8]) -> anyhow::Result<Vec<u8>>;
 
     fn public_key(&self) -> &[u8];
 
     fn address(&self) -> &str;
+
+    fn chain_type(&self) -> &ChainType;
 }
 
 pub fn public_key_to_evm_address(public_key: &[u8]) -> anyhow::Result<String> {

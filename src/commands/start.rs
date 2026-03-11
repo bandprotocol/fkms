@@ -33,13 +33,13 @@ pub async fn start(path: PathBuf) -> anyhow::Result<()> {
                 ChainType::Evm => {
                     for signer in signers {
                         info!("initialized local evm signer: {}", signer.address());
-                        builder.with_evm_signer(signer);
+                        builder.with_signer(signer);
                     }
                 }
                 ChainType::Xrpl => {
                     for signer in signers {
                         info!("initialized local xrpl signer: {}", signer.address());
-                        builder.with_xrpl_signer(signer);
+                        builder.with_signer(signer);
                     }
                 }
             }

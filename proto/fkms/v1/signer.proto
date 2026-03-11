@@ -29,8 +29,7 @@ message SignXrplResponse {
 message GetSignerAddressesRequest {}
 
 message GetSignerAddressesResponse {
-  repeated string addresses = 1;
-  
+  repeated Signers signers = 1;
 }
 
 message XrplSignerPayload {
@@ -44,4 +43,14 @@ message Tss {
   bytes message = 1;
   bytes random_addr = 2;
   bytes signature_s = 3;
+}
+
+message Signers {
+  ChainType chain_type = 1;
+  repeated string addresses = 2;
+}
+
+enum ChainType {
+  EVM = 0;
+  XRPL = 1;
 }

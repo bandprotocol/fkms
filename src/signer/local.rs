@@ -7,25 +7,30 @@ use k256::ecdsa::signature::hazmat::PrehashSigner;
 
 // ECDSA Signer (secp256k1)
 pub struct LocalSigner {
-    signing_key: EcdsaSigningKey,
+    signing_key: SigningKey,
     public_key: Vec<u8>,
     address: String,
+    chain_type: ChainType,
+}
+
+pub enum SigningKey {
+    Ecdsa(EcdsaSigningKey),
 }
 
 impl LocalSigner {
     pub fn new(private_key: &[u8], chain_type: &ChainType) -> anyhow::Result<Self> {
-        let signing_key = EcdsaSigningKey::from_slice(private_key)?;
-
-        let (public_key, address) = match chain_type {
+        let (signing_key, public_key, address) = match chain_type {
             ChainType::Evm => {
+                let signing_key = EcdsaSigningKey::from_slice(private_key)?;
                 let public_key = create_public_key(&signing_key, false);
                 let address = public_key_to_evm_address(&public_key)?;
-                (public_key, address)
+                (SigningKey::Ecdsa(signing_key), public_key, address)
             }
             ChainType::Xrpl => {
+                let signing_key = EcdsaSigningKey::from_slice(private_key)?;
                 let public_key = create_public_key(&signing_key, true);
                 let address = public_key_to_xrpl_address(&public_key)?;
-                (public_key, address)
+                (SigningKey::Ecdsa(signing_key), public_key, address)
             }
         };
 
@@ -33,22 +38,35 @@ impl LocalSigner {
             signing_key,
             public_key,
             address,
+            chain_type: chain_type.clone(),
         })
+    }
+
+    async fn sign_ecdsa(&self, message: &[u8]) -> anyhow::Result<Vec<u8>> {
+        match &self.signing_key {
+            SigningKey::Ecdsa(signing_key) => {
+                Ok(signing_key.sign_prehash_recoverable(message)?.into_vec())
+            }
+        }
+    }
+
+    async fn sign_der(&self, message: &[u8]) -> anyhow::Result<Vec<u8>> {
+        match &self.signing_key {
+            SigningKey::Ecdsa(signing_key) => {
+                let signature: DerSignature = signing_key.sign_prehash(message)?;
+                Ok(signature.into_vec())
+            }
+        }
     }
 }
 
 #[async_trait::async_trait]
 impl Signer for LocalSigner {
-    async fn sign_ecdsa(&self, message: &[u8]) -> anyhow::Result<Vec<u8>> {
-        Ok(self
-            .signing_key
-            .sign_prehash_recoverable(message)?
-            .into_vec())
-    }
-
-    async fn sign_der(&self, message: &[u8]) -> anyhow::Result<Vec<u8>> {
-        let signature: DerSignature = self.signing_key.sign_prehash(message)?;
-        Ok(signature.into_vec())
+    async fn sign(&self, message: &[u8]) -> anyhow::Result<Vec<u8>> {
+        match self.chain_type {
+            ChainType::Evm => self.sign_ecdsa(message).await,
+            ChainType::Xrpl => self.sign_der(message).await,
+        }
     }
 
     fn public_key(&self) -> &[u8] {
@@ -57,6 +75,10 @@ impl Signer for LocalSigner {
 
     fn address(&self) -> &str {
         &self.address
+    }
+
+    fn chain_type(&self) -> &ChainType {
+        &self.chain_type
     }
 }
 

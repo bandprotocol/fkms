@@ -85,7 +85,6 @@ index = 0
 ```env
 PRIVATE_KEY_1=abc123456789deadbeef...
 MNEMONIC="test test test test test test test test test test test junk"
-TSS_PUBLIC_KEY=0306be2adaf05e8ffc701c9241d6e147fcd7ff4f72e1da6aacd7158fa2a3919354
 ```
 
 ## Usage
@@ -194,9 +193,27 @@ message Tss {
 }
 ```
 
+### Example: Signers
+
+```proto
+message Signers {
+  ChainType chain_type = 1;
+  repeated string addresses = 2;
+}
+```
+
+### Example: ChainType
+
+```proto
+enum ChainType {
+  EVM = 0;
+  XRPL = 1;
+}
+```
+
 ### XRPL Signing Notes
 
-- The server computes the XRPL-standard SHA512Half digest of `message` (SHA-512, then taking the first 32 bytes) before signing.
+- The server constructs an XRPL transaction from the `XrplSignerPayload`, encodes it using XRPL's `encode_for_signing`, and computes the XRPL-standard SHA512Half digest of those encoded transaction bytes (SHA-512, then taking the first 32 bytes) before signing.
 - Signatures are returned as DER-encoded ECDSA bytes.
 
 ## Extending

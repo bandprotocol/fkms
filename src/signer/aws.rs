@@ -16,6 +16,7 @@ pub struct AwsSigner {
     key_id: String,
     public_key: Vec<u8>,
     address: String,
+    chain_type: ChainType,
 }
 
 impl AwsSigner {
@@ -55,13 +56,14 @@ impl AwsSigner {
             key_id,
             public_key,
             address,
+            chain_type,
         })
     }
+}
 
-    pub async fn sign_ecdsa_internal(
-        &self,
-        message: &[u8],
-    ) -> Result<EcdsaSignature, anyhow::Error> {
+#[async_trait::async_trait]
+impl Signer for AwsSigner {
+    async fn sign(&self, message: &[u8]) -> anyhow::Result<Vec<u8>> {
         let sign_output = self
             .client
             .sign()
@@ -71,26 +73,21 @@ impl AwsSigner {
             .send()
             .await?;
 
-        let signature_blob = sign_output
-            .signature
-            .ok_or(anyhow::Error::msg("no signature found"))?;
+        let signature_blob = sign_output.signature.ok_or(anyhow!("no signature found"))?;
 
-        let signature = ecdsa::Signature::from_der(signature_blob.as_ref())?;
-
-        let digest = Keccak256::new_with_prefix(message);
-        let recovery_id = find_recovery_id(digest, &signature);
-        Ok((signature, recovery_id))
-    }
-}
-
-#[async_trait::async_trait]
-impl Signer for AwsSigner {
-    async fn sign_ecdsa(&self, message: &[u8]) -> anyhow::Result<Vec<u8>> {
-        Ok(self.sign_ecdsa_internal(message).await?.into_vec())
-    }
-
-    async fn sign_der(&self, _: &[u8]) -> anyhow::Result<Vec<u8>> {
-        Err(anyhow!("der signing currently not support"))
+        match self.chain_type {
+            ChainType::Evm => {
+                let signature = ecdsa::Signature::from_der(signature_blob.as_ref())?;
+                let digest = Keccak256::new_with_prefix(message);
+                let recovery_id = self.find_recovery_id(digest, &signature)?;
+                let recoverable_signature: EcdsaSignature = (signature, recovery_id);
+                Ok(recoverable_signature.into_vec())
+            }
+            ChainType::Xrpl => {
+                // XRPL uses DER signature
+                Ok(signature_blob.into_inner())
+            }
+        }
     }
 
     fn public_key(&self) -> &[u8] {
@@ -100,14 +97,27 @@ impl Signer for AwsSigner {
     fn address(&self) -> &str {
         &self.address
     }
+
+    fn chain_type(&self) -> &ChainType {
+        &self.chain_type
+    }
 }
 
-fn find_recovery_id<D: Digest>(digest: D, signature: &ecdsa::Signature) -> ecdsa::RecoveryId {
-    // unwrap here as this should never fail
-    let recovery_id_0 = ecdsa::RecoveryId::from_byte(0).unwrap();
-    if VerifyingKey::recover_from_digest(digest, signature, recovery_id_0).is_ok() {
-        recovery_id_0
-    } else {
-        ecdsa::RecoveryId::from_byte(1).unwrap()
+impl AwsSigner {
+    fn find_recovery_id<D: Digest + Clone>(
+        &self,
+        digest: D,
+        signature: &ecdsa::Signature,
+    ) -> anyhow::Result<ecdsa::RecoveryId> {
+        for i in 0..4 {
+            let recovery_id = ecdsa::RecoveryId::from_byte(i).unwrap();
+            if matches!(
+                VerifyingKey::recover_from_digest(digest.clone(), signature, recovery_id),
+                Ok(k) if k.to_encoded_point(false).as_bytes() == self.public_key
+            ) {
+                return Ok(recovery_id);
+            }
+        }
+        Err(anyhow!("Could not find recovery ID"))
     }
 }
