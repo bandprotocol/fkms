@@ -33,9 +33,11 @@ impl SignatureVerifier {
 
         for group in &self.groups {
             // check is expired
-            if current_time > group.expired_time {
-                warn!("TSS group is expired");
-                continue;
+            if let Some(expired_time) = group.expired_time {
+                if current_time > expired_time {
+                    warn!("TSS group is expired");
+                    continue;
+                }
             }
             match Self::verify(group.public_key, tss_message, random_addr, signature_s) {
                 Ok(_) => return Ok(()),
@@ -190,7 +192,7 @@ mod tests {
 
         let verifier = SignatureVerifier::new(vec![Group {
             public_key: group_pk,
-            expired_time: u64::MAX,
+            expired_time: Some(u64::MAX),
         }]);
 
         // 2. Prepare the Inputs
@@ -220,7 +222,7 @@ mod tests {
 
         let verifier = SignatureVerifier::new(vec![Group {
             public_key: group_pk,
-            expired_time: u64::MAX,
+            expired_time: Some(u64::MAX),
         }]);
 
         // 2. Prepare the Inputs
