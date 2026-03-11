@@ -5,7 +5,7 @@ use crate::config::tss::group::Group;
 use crate::proto;
 use crate::proto::fkms::v1::fkms_service_server::FkmsServiceServer;
 use crate::server::builder::ServerBuilder;
-use crate::signer::{EvmSigner, XrplSigner};
+use crate::signer::Signer;
 use crate::verifier::tss::signature::SignatureVerifier;
 use anyhow::anyhow;
 use std::net::SocketAddr;
@@ -32,16 +32,14 @@ pub async fn start(path: PathBuf) -> anyhow::Result<()> {
             match chain_type {
                 ChainType::Evm => {
                     for signer in signers {
-                        info!("initialized local evm signer: {}", signer.evm_address());
-                        let evm_address = signer.evm_address();
-                        builder.with_signer(evm_address, signer);
+                        info!("initialized local evm signer: {}", signer.address());
+                        builder.with_evm_signer(signer);
                     }
                 }
                 ChainType::Xrpl => {
                     for signer in signers {
-                        info!("initialized local xrpl signer: {}", signer.xrpl_address());
-                        let xrpl_address = signer.xrpl_address();
-                        builder.with_signer(xrpl_address, signer);
+                        info!("initialized local xrpl signer: {}", signer.address());
+                        builder.with_xrpl_signer(signer);
                     }
                 }
             }

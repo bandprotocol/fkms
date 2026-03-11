@@ -1,6 +1,8 @@
-use crate::signer::Signer;
+use crate::config::signer::local::ChainType;
 use crate::signer::signature::Signature;
 use crate::signer::signature::ecdsa::EcdsaSignature;
+use crate::signer::{Signer, public_key_to_evm_address, public_key_to_xrpl_address};
+use anyhow::anyhow;
 use aws_config::SdkConfig;
 use aws_sdk_kms::Client;
 use aws_sdk_kms::primitives::Blob;
@@ -12,12 +14,16 @@ use sha3::Keccak256;
 pub struct AwsSigner {
     client: Client,
     key_id: String,
-    compressed_pk: Vec<u8>,
-    uncompressed_pk: Vec<u8>,
+    public_key: Vec<u8>,
+    address: String,
 }
 
 impl AwsSigner {
-    pub async fn new(config: &SdkConfig, key_id: String) -> Result<Self, anyhow::Error> {
+    pub async fn new(
+        config: &SdkConfig,
+        key_id: String,
+        chain_type: ChainType,
+    ) -> Result<Self, anyhow::Error> {
         let client = Client::new(config);
 
         let resp = client
@@ -27,22 +33,35 @@ impl AwsSigner {
             .await?;
         let der_encoded_pk = resp
             .public_key
-            .ok_or(anyhow::Error::msg("no public key found"))?
+            .ok_or(anyhow!("no public key found"))?
             .into_inner();
         let verifying_key = VerifyingKey::from_public_key_der(&der_encoded_pk)?;
 
-        let compressed_pk = verifying_key.to_encoded_point(true).as_bytes().to_vec();
-        let uncompressed_pk = verifying_key.to_encoded_point(false).as_bytes().to_vec();
+        let (public_key, address) = match chain_type {
+            ChainType::Evm => {
+                let public_key = verifying_key.to_encoded_point(false).as_bytes().to_vec();
+                let address = public_key_to_evm_address(&public_key)?;
+                (public_key, address)
+            }
+            ChainType::Xrpl => {
+                let public_key = verifying_key.to_encoded_point(true).as_bytes().to_vec();
+                let address = public_key_to_xrpl_address(&public_key)?;
+                (public_key, address)
+            }
+        };
 
         Ok(Self {
             client,
             key_id,
-            compressed_pk,
-            uncompressed_pk,
+            public_key,
+            address,
         })
     }
 
-    pub async fn sign_ecsda(&self, message: &[u8]) -> Result<EcdsaSignature, anyhow::Error> {
+    pub async fn sign_ecdsa_internal(
+        &self,
+        message: &[u8],
+    ) -> Result<EcdsaSignature, anyhow::Error> {
         let sign_output = self
             .client
             .sign()
@@ -67,19 +86,19 @@ impl AwsSigner {
 #[async_trait::async_trait]
 impl Signer for AwsSigner {
     async fn sign_ecdsa(&self, message: &[u8]) -> anyhow::Result<Vec<u8>> {
-        Ok(self.sign_ecsda(message).await?.into_vec())
+        Ok(self.sign_ecdsa_internal(message).await?.into_vec())
     }
 
     async fn sign_der(&self, _: &[u8]) -> anyhow::Result<Vec<u8>> {
-        Err(anyhow::Error::msg("der signing currently not support"))
+        Err(anyhow!("der signing currently not support"))
     }
 
-    fn public_key(&self, compressed: bool) -> &[u8] {
-        if compressed {
-            &self.compressed_pk
-        } else {
-            &self.uncompressed_pk
-        }
+    fn public_key(&self) -> &[u8] {
+        &self.public_key
+    }
+
+    fn address(&self) -> &str {
+        &self.address
     }
 }
 

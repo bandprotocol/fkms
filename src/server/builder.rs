@@ -6,18 +6,31 @@ use std::collections::HashMap;
 
 #[derive(Default)]
 pub struct ServerBuilder {
-    signers: HashMap<String, Box<dyn Signer + 'static>>,
+    evm_signers: HashMap<String, Box<dyn Signer + 'static>>,
+    xrpl_signers: HashMap<String, Box<dyn Signer + 'static>>,
     pre_sign_hooks: Vec<Box<dyn PreSignHook>>,
     tss_signature_verifier: Option<SignatureVerifier>,
 }
 
 impl ServerBuilder {
-    pub fn with_signer<T>(&mut self, address: String, signer: T)
+    pub fn with_evm_signer<T>(&mut self, signer: T)
     where
         T: Signer,
     {
-        self.signers
-            .insert(address, Box::new(signer) as Box<dyn Signer + 'static>);
+        self.evm_signers.insert(
+            signer.address().into(),
+            Box::new(signer) as Box<dyn Signer + 'static>,
+        );
+    }
+
+    pub fn with_xrpl_signer<T>(&mut self, signer: T)
+    where
+        T: Signer,
+    {
+        self.xrpl_signers.insert(
+            signer.address().into(),
+            Box::new(signer) as Box<dyn Signer + 'static>,
+        );
     }
 
     pub fn with_pre_sign_hook<P>(&mut self, pre_sign_hook: P)
@@ -33,7 +46,8 @@ impl ServerBuilder {
 
     pub fn build(self) -> Server {
         Server {
-            signers: self.signers,
+            evm_signers: self.evm_signers,
+            xrpl_signers: self.xrpl_signers,
             pre_sign_hooks: self.pre_sign_hooks,
             tss_signature_verifier: self.tss_signature_verifier,
         }

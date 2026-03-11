@@ -2,7 +2,7 @@ use crate::commands::utils::get_config;
 use crate::commands::utils::get_local_signers_from_config;
 use crate::config::default_config_path;
 use crate::config::signer::local::ChainType;
-use crate::signer::{EvmSigner, XrplSigner};
+use crate::signer::Signer;
 use clap::{Args, Subcommand};
 use std::path::PathBuf;
 
@@ -41,8 +41,8 @@ fn list_keys(path: PathBuf) -> anyhow::Result<()> {
         for (chain_type, signers) in signer_groups {
             for signer in signers {
                 match chain_type {
-                    ChainType::Evm => println!("EVM Address: {}", signer.evm_address()),
-                    ChainType::Xrpl => println!("XRPL Address: {}", signer.xrpl_address()),
+                    ChainType::Evm => println!("EVM Address: {}", signer.address()),
+                    ChainType::Xrpl => println!("XRPL Address: {}", signer.address()),
                 }
             }
         }

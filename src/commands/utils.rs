@@ -34,7 +34,7 @@ pub fn get_local_signers_from_config(
                         engine.decode(pk)?
                     }
                 };
-                (chain_type.clone(), LocalSigner::new(&pkb)?)
+                (chain_type, LocalSigner::new(&pkb, chain_type)?)
             }
             LocalSignerConfig::Mnemonic {
                 env_variable,
@@ -45,11 +45,11 @@ pub fn get_local_signers_from_config(
             } => {
                 let mnemonic = env::var(env_variable)?;
                 let pkb = derive_credential_from_mnemonic(mnemonic, *coin_type, *account, *index)?;
-                (chain_type.clone(), LocalSigner::new(&pkb)?)
+                (chain_type, LocalSigner::new(&pkb, chain_type)?)
             }
         };
 
-        map.entry(chain_type).or_default().push(signer);
+        map.entry(chain_type.clone()).or_default().push(signer);
     }
 
     Ok(map)

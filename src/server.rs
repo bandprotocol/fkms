@@ -9,7 +9,8 @@ pub mod pre_sign;
 pub mod service;
 
 pub struct Server {
-    signers: HashMap<String, Box<dyn Signer>>,
+    evm_signers: HashMap<String, Box<dyn Signer>>,
+    xrpl_signers: HashMap<String, Box<dyn Signer>>,
     pre_sign_hooks: Vec<Box<dyn PreSignHook>>,
     tss_signature_verifier: Option<SignatureVerifier>,
 }

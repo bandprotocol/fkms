@@ -34,7 +34,7 @@ impl FkmsService for Server {
             hook.call(&decoded_tss_message.packet).await?;
         }
 
-        match self.signers.get(&sign_evm_request.address) {
+        match self.evm_signers.get(&sign_evm_request.address) {
             Some(signer) => {
                 match signer
                     .sign_ecdsa(&sha3::Keccak256::digest(&sign_evm_request.message))
@@ -93,9 +93,9 @@ impl FkmsService for Server {
             hook.call(&tunnel_packet).await?;
         }
 
-        match self.signers.get(&signer_payload.account) {
+        match self.xrpl_signers.get(&signer_payload.account) {
             Some(signer) => {
-                let public_key = hex::encode(signer.public_key(true));
+                let public_key = hex::encode(signer.public_key());
                 let signals: Vec<(String, u64)> = tunnel_packet
                     .signals
                     .iter()
@@ -154,9 +154,13 @@ impl FkmsService for Server {
         _request: Request<GetSignerAddressesRequest>,
     ) -> Result<Response<GetSignerAddressesResponse>, Status> {
         info!("Got get_signer_addresses request");
-        let response = GetSignerAddressesResponse {
-            addresses: self.signers.keys().cloned().collect(),
-        };
+        let addresses = self
+            .evm_signers
+            .keys()
+            .chain(self.xrpl_signers.keys())
+            .cloned()
+            .collect();
+        let response = GetSignerAddressesResponse { addresses };
         Ok(Response::new(response))
     }
 }
