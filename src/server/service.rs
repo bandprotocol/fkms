@@ -31,7 +31,7 @@ impl FkmsService for Server {
 
         // run pre sign hooks
         for hook in &self.pre_sign_hooks {
-            hook.call(decoded_tss_message.packet.clone()).await?;
+            hook.call(&decoded_tss_message.packet).await?;
         }
 
         match self.signers.get(&sign_evm_request.address) {
@@ -90,7 +90,7 @@ impl FkmsService for Server {
 
         // run pre sign hooks
         for hook in &self.pre_sign_hooks {
-            hook.call(tunnel_packet.clone()).await?;
+            hook.call(&tunnel_packet).await?;
         }
 
         match self.signers.get(&signer_payload.account) {

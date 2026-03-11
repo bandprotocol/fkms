@@ -30,6 +30,7 @@ message GetSignerAddressesRequest {}
 
 message GetSignerAddressesResponse {
   repeated string addresses = 1;
+  
 }
 
 message XrplSignerPayload {

@@ -28,9 +28,9 @@ Before building and running `fkms`, ensure the following dependency is installed
       ```sh
       cargo install --path . --features aws
       ```
-    - Local, AWS, and TSS KMS support:
+    - Both Local and AWS KMS support:
       ```sh
-      cargo install --path . --features local,aws,tss
+      cargo install --path . --features local,aws
       ```
    This will compile and install the fkms executable 
 
@@ -181,7 +181,6 @@ message XrplSignerPayload {
   uint64 oracle_id = 2;
   string fee = 3;
   uint64 sequence = 4;
-  uint64 last_updated_time = 5;
 }
 ```
 

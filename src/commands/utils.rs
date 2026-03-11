@@ -16,7 +16,7 @@ pub fn get_config(path: PathBuf) -> anyhow::Result<Config> {
 #[cfg(feature = "local")]
 pub fn get_local_signers_from_config(
     configs: &[LocalSignerConfig],
-) -> anyhow::Result<Vec<(ChainType, Vec<LocalSigner>)>> {
+) -> anyhow::Result<HashMap<ChainType, Vec<LocalSigner>>> {
     let mut map: HashMap<ChainType, Vec<LocalSigner>> = HashMap::new();
 
     for config in configs {
@@ -52,7 +52,7 @@ pub fn get_local_signers_from_config(
         map.entry(chain_type).or_default().push(signer);
     }
 
-    Ok(map.into_iter().collect())
+    Ok(map)
 }
 
 #[cfg(feature = "local")]
