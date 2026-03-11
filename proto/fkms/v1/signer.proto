@@ -4,6 +4,7 @@ package fkms.v1;
 
 service FkmsService {
   rpc SignEvm(SignEvmRequest) returns (SignEvmResponse);
+  rpc SignXrpl(SignXrplRequest) returns (SignXrplResponse);
   rpc GetSignerAddresses(GetSignerAddressesRequest) returns (GetSignerAddressesResponse);
 }
 
@@ -16,8 +17,40 @@ message SignEvmResponse {
   bytes signature = 1;
 }
 
+message SignXrplRequest {
+  XrplSignerPayload signer_payload = 1;
+  Tss tss = 2;
+}
+
+message SignXrplResponse {
+  bytes tx_blob = 1;
+}
+
 message GetSignerAddressesRequest {}
 
 message GetSignerAddressesResponse {
-  repeated string addresses = 1;
+  repeated Signers signers = 1;
+}
+
+message XrplSignerPayload {
+  string account = 1;
+  uint64 oracle_id = 2;
+  string fee = 3;
+  uint64 sequence = 4;
+}
+
+message Tss {
+  bytes message = 1;
+  bytes random_addr = 2;
+  bytes signature_s = 3;
+}
+
+message Signers {
+  ChainType chain_type = 1;
+  repeated string addresses = 2;
+}
+
+enum ChainType {
+  EVM = 0;
+  XRPL = 1;
 }

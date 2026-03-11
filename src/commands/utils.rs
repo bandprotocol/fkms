@@ -1,9 +1,11 @@
 use crate::config::Config;
+use crate::config::signer::local::ChainType;
 use crate::config::signer::local::{Encoding, LocalSignerConfig};
 use crate::signer::local::LocalSigner;
 use alloy_signer_local::MnemonicBuilder;
 use alloy_signer_local::coins_bip39::English;
 use base64::Engine;
+use std::collections::HashMap;
 use std::env;
 use std::path::PathBuf;
 
@@ -14,45 +16,58 @@ pub fn get_config(path: PathBuf) -> anyhow::Result<Config> {
 #[cfg(feature = "local")]
 pub fn get_local_signers_from_config(
     configs: &[LocalSignerConfig],
-) -> anyhow::Result<Vec<LocalSigner>> {
-    configs
-        .iter()
-        .map(|config| {
-            let pkb = match config {
-                LocalSignerConfig::PrivateKey {
-                    env_variable,
-                    encoding,
-                } => {
-                    let pk = env::var(env_variable)?;
-                    match encoding {
-                        Encoding::Hex => hex::decode(pk)?,
-                        Encoding::Base64 => {
-                            let engine = base64::engine::general_purpose::STANDARD;
-                            engine.decode(pk)?
-                        }
+) -> anyhow::Result<HashMap<ChainType, Vec<LocalSigner>>> {
+    let mut map: HashMap<ChainType, Vec<LocalSigner>> = HashMap::new();
+
+    for config in configs {
+        let (chain_type, signer) = match config {
+            LocalSignerConfig::PrivateKey {
+                env_variable,
+                encoding,
+                chain_type,
+            } => {
+                let pk = env::var(env_variable)?;
+                let pkb = match encoding {
+                    Encoding::Hex => hex::decode(pk)?,
+                    Encoding::Base64 => {
+                        let engine = base64::engine::general_purpose::STANDARD;
+                        engine.decode(pk)?
                     }
-                }
-                LocalSignerConfig::Mnemonic {
-                    env_variable,
-                    coin_type,
-                    account,
-                    index,
-                } => {
-                    let mnemonic = env::var(env_variable)?;
+                };
+                (chain_type, LocalSigner::new(&pkb, chain_type)?)
+            }
+            LocalSignerConfig::Mnemonic {
+                env_variable,
+                coin_type,
+                account,
+                index,
+                chain_type,
+            } => {
+                let mnemonic = env::var(env_variable)?;
+                let pkb = derive_credential_from_mnemonic(mnemonic, *coin_type, *account, *index)?;
+                (chain_type, LocalSigner::new(&pkb, chain_type)?)
+            }
+        };
 
-                    let hd_path = format!("m/44'/{}'/{}'/0/{}", coin_type, account, index);
+        map.entry(chain_type.clone()).or_default().push(signer);
+    }
 
-                    let signer = MnemonicBuilder::<English>::default()
-                        .phrase(mnemonic)
-                        .derivation_path(hd_path)?
-                        .build()?;
+    Ok(map)
+}
 
-                    let pkb = signer.credential().to_bytes().to_vec();
+#[cfg(feature = "local")]
+fn derive_credential_from_mnemonic(
+    mnemonic: String,
+    coin_type: u32,
+    account: u32,
+    index: u32,
+) -> anyhow::Result<Vec<u8>> {
+    let hd_path = format!("m/44'/{}'/{}'/0/{}", coin_type, account, index);
 
-                    pkb
-                }
-            };
-            Ok(LocalSigner::new(&pkb)?)
-        })
-        .collect()
+    let signer = MnemonicBuilder::<English>::default()
+        .phrase(mnemonic)
+        .derivation_path(&hd_path)?
+        .build()?;
+
+    Ok(signer.credential().to_bytes().to_vec())
 }

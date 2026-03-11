@@ -2,6 +2,7 @@ use crate::signer::signature::Signature;
 use k256::ecdsa;
 
 pub type EcdsaSignature = (ecdsa::Signature, ecdsa::RecoveryId);
+pub type DerSignature = ecdsa::DerSignature;
 
 impl Signature for EcdsaSignature {
     fn into_vec(self) -> Vec<u8> {
@@ -11,5 +12,11 @@ impl Signature for EcdsaSignature {
         sig.extend_from_slice(&s);
         sig.push(self.1.to_byte());
         sig
+    }
+}
+
+impl Signature for DerSignature {
+    fn into_vec(self) -> Vec<u8> {
+        self.as_bytes().to_vec()
     }
 }

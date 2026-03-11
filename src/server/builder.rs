@@ -1,23 +1,25 @@
+use crate::config::signer::local::ChainType;
 use crate::server::Server;
 use crate::server::pre_sign::PreSignHook;
-use crate::signer::signature::ecdsa::EcdsaSignature;
-use crate::signer::{EvmSigner, Signer};
+use crate::signer::Signer;
+use crate::verifier::tss::signature::SignatureVerifier;
 use std::collections::HashMap;
 
 #[derive(Default)]
 pub struct ServerBuilder {
-    evm_signers: HashMap<String, Box<dyn Signer<EcdsaSignature> + 'static>>,
+    signers: HashMap<(ChainType, String), Box<dyn Signer + 'static>>,
     pre_sign_hooks: Vec<Box<dyn PreSignHook>>,
+    tss_signature_verifier: Option<SignatureVerifier>,
 }
 
 impl ServerBuilder {
-    pub fn with_evm_signer<T>(&mut self, signer: T)
+    pub fn with_signer<T>(&mut self, signer: T)
     where
-        T: Signer<EcdsaSignature> + EvmSigner,
+        T: Signer,
     {
-        self.evm_signers.insert(
-            signer.evm_address(),
-            Box::new(signer) as Box<dyn Signer<EcdsaSignature> + 'static>,
+        self.signers.insert(
+            (signer.chain_type().clone(), signer.address().into()),
+            Box::new(signer) as Box<dyn Signer + 'static>,
         );
     }
 
@@ -28,10 +30,15 @@ impl ServerBuilder {
         self.pre_sign_hooks.push(Box::new(pre_sign_hook));
     }
 
+    pub fn with_tss_signature_verifier(&mut self, verifier: SignatureVerifier) {
+        self.tss_signature_verifier = Some(verifier);
+    }
+
     pub fn build(self) -> Server {
         Server {
-            evm_signers: self.evm_signers,
+            signers: self.signers,
             pre_sign_hooks: self.pre_sign_hooks,
+            tss_signature_verifier: self.tss_signature_verifier,
         }
     }
 }

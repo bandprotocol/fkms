@@ -1,10 +1,12 @@
-use crate::signer::Signer;
+use crate::config::signer::local::ChainType;
+use crate::signer::signature::Signature;
 use crate::signer::signature::ecdsa::EcdsaSignature;
+use crate::signer::{Signer, public_key_to_evm_address, public_key_to_xrpl_address};
+use anyhow::anyhow;
 use aws_config::SdkConfig;
 use aws_sdk_kms::Client;
 use aws_sdk_kms::primitives::Blob;
 use k256::ecdsa::{self, VerifyingKey};
-use k256::elliptic_curve::sec1::ToEncodedPoint;
 use k256::pkcs8::DecodePublicKey;
 use k256::sha2::Digest;
 use sha3::Keccak256;
@@ -12,11 +14,17 @@ use sha3::Keccak256;
 pub struct AwsSigner {
     client: Client,
     key_id: String,
-    ecsda_public_key: Vec<u8>,
+    public_key: Vec<u8>,
+    address: String,
+    chain_type: ChainType,
 }
 
 impl AwsSigner {
-    pub async fn new(config: &SdkConfig, key_id: String) -> Result<Self, anyhow::Error> {
+    pub async fn new(
+        config: &SdkConfig,
+        key_id: String,
+        chain_type: ChainType,
+    ) -> Result<Self, anyhow::Error> {
         let client = Client::new(config);
 
         let resp = client
@@ -26,23 +34,36 @@ impl AwsSigner {
             .await?;
         let der_encoded_pk = resp
             .public_key
-            .ok_or(anyhow::Error::msg("no public key found"))?
+            .ok_or(anyhow!("no public key found"))?
             .into_inner();
         let verifying_key = VerifyingKey::from_public_key_der(&der_encoded_pk)?;
-        let ecsda_public_key = verifying_key
-            .as_affine()
-            .to_encoded_point(false)
-            .to_bytes()
-            .to_vec();
+
+        let (public_key, address) = match chain_type {
+            ChainType::Evm => {
+                let public_key = verifying_key.to_encoded_point(false).as_bytes().to_vec();
+                let address = public_key_to_evm_address(&public_key)?;
+                (public_key, address)
+            }
+            ChainType::Xrpl => {
+                let public_key = verifying_key.to_encoded_point(true).as_bytes().to_vec();
+                let address = public_key_to_xrpl_address(&public_key)?;
+                (public_key, address)
+            }
+        };
 
         Ok(Self {
             client,
             key_id,
-            ecsda_public_key,
+            public_key,
+            address,
+            chain_type,
         })
     }
+}
 
-    pub async fn sign_ecsda(&self, message: &[u8]) -> Result<EcdsaSignature, anyhow::Error> {
+#[async_trait::async_trait]
+impl Signer for AwsSigner {
+    async fn sign(&self, message: &[u8]) -> anyhow::Result<Vec<u8>> {
         let sign_output = self
             .client
             .sign()
@@ -52,35 +73,48 @@ impl AwsSigner {
             .send()
             .await?;
 
-        let signature_blob = sign_output
-            .signature
-            .ok_or(anyhow::Error::msg("no signature found"))?;
+        let signature_blob = sign_output.signature.ok_or(anyhow!("no signature found"))?;
 
-        let signature = ecdsa::Signature::from_der(signature_blob.as_ref())?;
-
-        let digest = Keccak256::new_with_prefix(message);
-        let recovery_id = find_recovery_id(digest, &signature);
-        Ok((signature, recovery_id))
-    }
-}
-
-#[async_trait::async_trait]
-impl Signer<EcdsaSignature> for AwsSigner {
-    async fn sign(&self, message: &[u8]) -> Result<EcdsaSignature, anyhow::Error> {
-        self.sign_ecsda(message).await
+        match self.chain_type {
+            ChainType::Evm => {
+                let signature = ecdsa::Signature::from_der(signature_blob.as_ref())?;
+                let digest = Keccak256::new_with_prefix(message);
+                let recovery_id = self.find_recovery_id(digest, &signature)?;
+                let recoverable_signature: EcdsaSignature = (signature, recovery_id);
+                Ok(recoverable_signature.into_vec())
+            }
+            _ => Err(anyhow!("Unsupported Chain Type")),
+        }
     }
 
     fn public_key(&self) -> &[u8] {
-        self.ecsda_public_key.as_slice()
+        &self.public_key
+    }
+
+    fn address(&self) -> &str {
+        &self.address
+    }
+
+    fn chain_type(&self) -> &ChainType {
+        &self.chain_type
     }
 }
 
-fn find_recovery_id<D: Digest>(digest: D, signature: &ecdsa::Signature) -> ecdsa::RecoveryId {
-    // unwrap here as this should never fail
-    let recovery_id_0 = ecdsa::RecoveryId::from_byte(0).unwrap();
-    if VerifyingKey::recover_from_digest(digest, signature, recovery_id_0).is_ok() {
-        recovery_id_0
-    } else {
-        ecdsa::RecoveryId::from_byte(1).unwrap()
+impl AwsSigner {
+    fn find_recovery_id<D: Digest + Clone>(
+        &self,
+        digest: D,
+        signature: &ecdsa::Signature,
+    ) -> anyhow::Result<ecdsa::RecoveryId> {
+        for i in 0..4 {
+            let recovery_id = ecdsa::RecoveryId::from_byte(i).unwrap();
+            if matches!(
+                VerifyingKey::recover_from_digest(digest.clone(), signature, recovery_id),
+                Ok(k) if k.to_encoded_point(false).as_bytes() == self.public_key
+            ) {
+                return Ok(recovery_id);
+            }
+        }
+        Err(anyhow!("Could not find recovery ID"))
     }
 }

@@ -2,7 +2,7 @@
 
 ## Overview
 
-`fkms` is a Key Management Service (KMS) written in Rust, designed to sign transactions originating from [Falcon](https://github.com/bandprotocol/falcon). It provides secure key management and signing capabilities for EVM-compatible blockchains, supporting both local and AWS KMS-backed signers. The service exposes a gRPC API for signing and key management operations, and is designed to be easily configurable and extensible with middleware (e.g., authentication).
+`fkms` is a Key Management Service (KMS) written in Rust, designed to sign transactions originating from [Falcon](https://github.com/bandprotocol/falcon). It provides secure key management and signing capabilities for EVM-compatible blockchains and XRPL (secp256k1), supporting both local and AWS KMS-backed signers. The service exposes a gRPC API for signing and key management operations, and is designed to be easily configurable and extensible with middleware (e.g., authentication).
 
 ## Prerequisites
 Before building and running `fkms`, ensure the following dependency is installed:
@@ -28,7 +28,7 @@ Before building and running `fkms`, ensure the following dependency is installed
       ```sh
       cargo install --path . --features aws
       ```
-    - Both local and AWS KMS support:
+    - Both Local and AWS KMS support:
       ```sh
       cargo install --path . --features local,aws
       ```
@@ -59,6 +59,7 @@ log_level = ""
 type = "private_key"
 env_variable = "PRIVATE_KEY_1"
 encoding = "hex"
+chain_type = "evm"
 
 [[signer_config.local_signer_configs]]
 type         = "mnemonic"
@@ -66,13 +67,20 @@ env_variable = "MNEMONIC_1"
 coin_type = 60
 account = 0
 index = 0
+
+[tss]
+enable_verify = true
+
+[[tss.groups]]
+public_key = "0232a786de4c99679f10fb9a1c94d17737739e413bef385a2f8a26f901a40fdc8b"
+expired_time = 1234567890
 ```
 
 ### Supported Local Signer Types
 
 | Type          | Description                                    | Required Fields                                |
 | --------------| ---------------------------------------------- | -----------------------------------------------|
-| `private_key` | Load private key from an environment variable  | `env_variable`, `encoding`                     |
+| `private_key` | Load private key from an environment variable (Currently support only EVM) | `env_variable`, `encoding`                     |
 | `mnemonic`    | Load mnemonic from an environment variable     | `env_variable`, `coin_type`, `account`, `index`|
 
 ## Encoding Options
@@ -119,7 +127,8 @@ cargo build
 
 The gRPC API is defined in [`proto/fkms/v1/signer.proto`](proto/fkms/v1/signer.proto):
 
-- `SignEvm(SignEvmRequest)`: Sign a message with a given address
+- `SignEvm(SignEvmRequest)`: Sign a message with a given address (EVM)
+- `SignXrpl(SignXrplRequest)`: Sign a message with a given address (XRPL)
 - `GetSignerAddresses(GetSignerAddressesRequest)`: List available signer addresses
 
 ### Example: SignEvmRequest
@@ -131,6 +140,37 @@ message SignEvmRequest {
 }
 ```
 
+### Example: SignEvmResponse
+
+```proto
+message SignEvmResponse {
+  bytes signature = 1;
+}
+```
+
+### Example: SignXrplRequest
+
+```proto
+message SignXrplRequest {
+  XrplSignerPayload signer_payload = 1;
+  Tss tss = 2;
+}
+```
+
+### Example: SignXrplResponse
+
+```proto
+message SignXrplResponse {
+  bytes tx_blob = 1;
+}
+```
+
+### Example: GetSignerAddressesRequest
+
+```proto
+message GetSignerAddressesRequest {}
+```
+
 ### Example: GetSignerAddressesResponse
 
 ```proto
@@ -138,6 +178,50 @@ message GetSignerAddressesResponse {
   repeated string addresses = 1;
 }
 ```
+
+### Example: XrplSignerPayload
+
+```proto
+message XrplSignerPayload {
+  string account = 1;
+  uint64 oracle_id = 2;
+  string fee = 3;
+  uint64 sequence = 4;
+}
+```
+
+### Example: Tss
+
+```proto
+message Tss {
+  bytes message = 1;
+  bytes random_addr = 2;
+  bytes signature_s = 3;
+}
+```
+
+### Example: Signers
+
+```proto
+message Signers {
+  ChainType chain_type = 1;
+  repeated string addresses = 2;
+}
+```
+
+### Example: ChainType
+
+```proto
+enum ChainType {
+  EVM = 0;
+  XRPL = 1;
+}
+```
+
+### XRPL Signing Notes
+
+- The server constructs an XRPL transaction from the `XrplSignerPayload`, encodes it using XRPL's `encode_for_signing`, and computes the XRPL-standard SHA512Half digest of those encoded transaction bytes (SHA-512, then taking the first 32 bytes) before signing.
+- Signatures are returned as DER-encoded ECDSA bytes.
 
 ## Extending
 

@@ -1,10 +1,12 @@
 pub mod logging;
 mod server;
 pub mod signer;
+pub mod tss;
 
 use crate::config::logging::LoggingConfig;
 use crate::config::server::ServerConfig;
 use crate::config::signer::SignerConfig;
+use crate::config::tss::TssConfig;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
@@ -13,6 +15,7 @@ pub struct Config {
     pub server: ServerConfig,
     pub signer_config: SignerConfig,
     pub logging: LoggingConfig,
+    pub tss: TssConfig,
 }
 
 pub fn default_config_path() -> PathBuf {
