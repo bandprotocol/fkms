@@ -24,7 +24,7 @@ pub trait Signer: Send + Sync + 'static {
     fn chain_type(&self) -> &ChainType;
 }
 
-pub fn public_key_to_evm_address(public_key: &[u8]) -> anyhow::Result<String> {
+pub fn uncompressed_public_key_to_address(public_key: &[u8]) -> anyhow::Result<String> {
     // Check exact length
     if public_key.len() != 65 {
         return Err(anyhow!(

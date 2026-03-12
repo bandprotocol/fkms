@@ -1,7 +1,7 @@
 use crate::config::signer::local::ChainType;
 use crate::signer::signature::Signature;
 use crate::signer::signature::ecdsa::DerSignature;
-use crate::signer::{Signer, public_key_to_evm_address, public_key_to_xrpl_address};
+use crate::signer::{Signer, uncompressed_public_key_to_address, public_key_to_xrpl_address};
 use k256::ecdsa::SigningKey as EcdsaSigningKey;
 use k256::ecdsa::signature::hazmat::PrehashSigner;
 
@@ -23,13 +23,19 @@ impl LocalSigner {
             ChainType::Evm => {
                 let signing_key = EcdsaSigningKey::from_slice(private_key)?;
                 let public_key = create_public_key(&signing_key, false);
-                let address = public_key_to_evm_address(&public_key)?;
+                let address = uncompressed_public_key_to_address(&public_key)?;
                 (SigningKey::Ecdsa(signing_key), public_key, address)
             }
             ChainType::Xrpl => {
                 let signing_key = EcdsaSigningKey::from_slice(private_key)?;
                 let public_key = create_public_key(&signing_key, true);
                 let address = public_key_to_xrpl_address(&public_key)?;
+                (SigningKey::Ecdsa(signing_key), public_key, address)
+            }
+            ChainType::Icon => {
+                let signing_key = EcdsaSigningKey::from_slice(private_key)?;
+                let public_key = create_public_key(&signing_key, false);
+                let address = uncompressed_public_key_to_address(&public_key)?;
                 (SigningKey::Ecdsa(signing_key), public_key, address)
             }
         };
@@ -66,6 +72,7 @@ impl Signer for LocalSigner {
         match self.chain_type {
             ChainType::Evm => self.sign_ecdsa(message).await,
             ChainType::Xrpl => self.sign_der(message).await,
+            ChainType::Icon => self.sign_ecdsa(message).await,
         }
     }
 
@@ -146,34 +153,34 @@ mod test {
     }
 
     #[test]
-    fn test_public_key_to_evm_address_1() {
+    fn test_uncompressed_public_key_to_address_1() {
         let pk = hex::decode("04b01ab5a1640da9ad9f9593c9e3d90a68a6a64b9fa4742edb13acb15e93ebee20ae14072003dd69a1eaf060bb74a90e27acd3e66fdb234b5225c665e2a26f52e7").unwrap();
-        let address = public_key_to_evm_address(&pk).unwrap();
+        let address = uncompressed_public_key_to_address(&pk).unwrap();
         let expected = "0x29754940a23e3571db50103dd379e1ec15597611";
         assert_eq!(address, expected);
     }
 
     #[test]
-    fn test_public_key_to_evm_address_2() {
+    fn test_uncompressed_public_key_to_address_2() {
         let pk = hex::decode("0470d624fa6823e50a874d65580961696626059fc2fc7d698813e24550ab51f1e5eb58b15735e50318a1c9f79c2d6b5a5c7fe34b64c99e59c207b0bb7f7c492b83").unwrap();
-        let address = public_key_to_evm_address(&pk).unwrap();
+        let address = uncompressed_public_key_to_address(&pk).unwrap();
         let expected = "0x151df313e367d60af962bd1fbd2508cf8da1fed6";
         assert_eq!(address, expected);
     }
 
     #[test]
-    fn test_public_key_to_evm_address_3() {
+    fn test_uncompressed_public_key_to_address_3() {
         let pk = hex::decode("0409cb1cab6bd46b7b050bf8427850340bc6906b88957d584432f6fc6510688f4a7c01b45e009bd1d700b4486325c915a6d25ba69722c8ded9da0ab76941870e3d").unwrap();
-        let address = public_key_to_evm_address(&pk).unwrap();
+        let address = uncompressed_public_key_to_address(&pk).unwrap();
         let expected = "0xf9c62d223a203c8160f19be3588e41d9d6e67a59";
         assert_eq!(address, expected);
     }
 
     #[test]
-    fn test_public_key_to_xrpl_address() {
+    fn test_uncompressed_public_key_to_xrpl_address() {
         let pk = hex::decode("02D5A397A10DE2C485FA5592FFD86A7B5744BC221E24F71196ACD32EB66B14264C")
             .unwrap();
-        let address = public_key_to_xrpl_address(&pk).unwrap();
+        let address = uncompressed_public_key_to_address(&pk).unwrap();
         let expected = "rpJ8fpF16aB8a4rmhkZNaXCWq3zweEzKrB";
         assert_eq!(address, expected);
     }

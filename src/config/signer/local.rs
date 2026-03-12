@@ -29,4 +29,5 @@ pub enum Encoding {
 pub enum ChainType {
     Evm,
     Xrpl,
+    Icon,
 }

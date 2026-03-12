@@ -1,7 +1,7 @@
 use crate::config::signer::local::ChainType;
 use crate::signer::signature::Signature;
 use crate::signer::signature::ecdsa::EcdsaSignature;
-use crate::signer::{Signer, public_key_to_evm_address, public_key_to_xrpl_address};
+use crate::signer::{Signer, uncompressed_public_key_to_address, public_key_to_xrpl_address};
 use anyhow::anyhow;
 use aws_config::SdkConfig;
 use aws_sdk_kms::Client;
@@ -41,7 +41,7 @@ impl AwsSigner {
         let (public_key, address) = match chain_type {
             ChainType::Evm => {
                 let public_key = verifying_key.to_encoded_point(false).as_bytes().to_vec();
-                let address = public_key_to_evm_address(&public_key)?;
+                let address = uncompressed_public_key_to_address(&public_key)?;
                 (public_key, address)
             }
             ChainType::Xrpl => {
