@@ -189,15 +189,11 @@ mod tests {
         assert!(price_offset > 0);
         assert!(
             price_positive > price_offset,
-            "Expected {} > {}",
-            price_positive,
-            price_offset
+            "Expected {price_positive} > {price_offset}"
         );
         assert!(
             price_negative < price_offset,
-            "Expected {} < {}",
-            price_negative,
-            price_offset
+            "Expected {price_negative} < {price_offset}"
         );
 
         // Test tick below threshold should return error

@@ -82,7 +82,7 @@ where
                 .map_err(|e| Status::internal(e.to_string()))?;
 
             store.verify_api_key(api_key).await.map_err(|e| {
-                Status::unauthenticated(format!("API key verification failed: {}", e))
+                Status::unauthenticated(format!("API key verification failed: {e}"))
             })?;
 
             let response = inner.call(req).await.map_err(Into::into)?;

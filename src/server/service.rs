@@ -1,5 +1,8 @@
 use crate::codec::evm::decode_tx;
-use crate::codec::icon::{decode_tx as decode_icon_tx, encode_tx_for_signing, sign_tx, create_signing_payload as create_icon_signing_payload};
+use crate::codec::icon::{
+    create_signing_payload as create_icon_signing_payload, decode_tx as decode_icon_tx,
+    encode_tx_for_signing, sign_tx,
+};
 use crate::codec::tss::decode_tss_message;
 use crate::codec::xrpl::create_signing_payload;
 use crate::codec::xrpl::{encode_for_signing, encode_with_signature};
@@ -8,7 +11,7 @@ use crate::proto::fkms::v1::ChainType as proto_chain_type;
 use crate::proto::fkms::v1::fkms_service_server::FkmsService;
 use crate::proto::fkms::v1::{
     GetSignerAddressesRequest, GetSignerAddressesResponse, SignEvmRequest, SignEvmResponse,
-    SignIconRequest, SignIconResponse, SignXrplRequest, SignXrplResponse, Signers
+    SignIconRequest, SignIconResponse, SignXrplRequest, SignXrplResponse, Signers,
 };
 use crate::server::Server;
 use k256::sha2::Sha512;
@@ -31,7 +34,7 @@ impl FkmsService for Server {
             .map_err(|e| Status::internal(format!("Failed to decode tx: {e}")))?;
 
         let decoded_tss_message = decode_tss_message(&evm_tx.tss.message)
-            .map_err(|e| Status::internal(format!("Failed to decode TSS message: {}", e)))?;
+            .map_err(|e| Status::internal(format!("Failed to decode TSS message: {e}")))?;
 
         // run pre sign hooks
         for hook in &self.pre_sign_hooks {
@@ -92,7 +95,7 @@ impl FkmsService for Server {
 
         // extract prices from tss message
         let decoded_tss_message = decode_tss_message(&tss.message)
-            .map_err(|e| Status::internal(format!("Failed to decode TSS message: {}", e)))?;
+            .map_err(|e| Status::internal(format!("Failed to decode TSS message: {e}")))?;
         let tunnel_packet = decoded_tss_message.packet;
 
         // run pre sign hooks
@@ -185,7 +188,7 @@ impl FkmsService for Server {
 
         // extract prices from tss message
         let decoded_tss_message = decode_tss_message(&tss.message)
-            .map_err(|e| Status::internal(format!("Failed to decode TSS message: {}", e)))?;
+            .map_err(|e| Status::internal(format!("Failed to decode TSS message: {e}")))?;
         let tunnel_packet = decoded_tss_message.packet;
 
         // run pre sign hooks
@@ -193,7 +196,10 @@ impl FkmsService for Server {
             hook.call(&tunnel_packet).await?;
         }
 
-        match self.signers.get(&(ChainType::Icon, signer_payload.relayer.clone())) {
+        match self
+            .signers
+            .get(&(ChainType::Icon, signer_payload.relayer.clone()))
+        {
             Some(signer) => {
                 let signals: Vec<(String, u64)> = tunnel_packet
                     .signals
@@ -209,7 +215,8 @@ impl FkmsService for Server {
                     &signer_payload.network_id,
                     tunnel_packet.timestamp,
                     tunnel_packet.sequence,
-                ).map_err(|e| {
+                )
+                .map_err(|e| {
                     error!("failed to create signing payload: {:?}", e);
                     Status::internal(format!("Failed to create signing payload: {e}"))
                 })?;
@@ -220,8 +227,9 @@ impl FkmsService for Server {
                 let icon_tx = decode_icon_tx(&tx_bytes)
                     .map_err(|e| Status::internal(format!("Failed to decode icon tx: {e}")))?;
 
-                let signing_data = encode_tx_for_signing(&icon_tx)
-                    .map_err(|e| Status::internal(format!("Failed to encode tx for signing: {e}")))?;
+                let signing_data = encode_tx_for_signing(&icon_tx).map_err(|e| {
+                    Status::internal(format!("Failed to encode tx for signing: {e}"))
+                })?;
 
                 // Sign with SHA3-256
                 let digest = Sha3_256::digest(&signing_data);

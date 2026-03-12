@@ -58,29 +58,28 @@ pub fn create_signing_payload(
             "method": "relay",
             "params": {
                 "symbols": signals.iter().map(|(s, _)| s.clone()).collect::<Vec<_>>(),
-                "rates": signals.iter().map(|(_, p)| format!("0x{:x}", p)).collect::<Vec<_>>(),
+                "rates": signals.iter().map(|(_, p)| format!("0x{p:x}")).collect::<Vec<_>>(),
                 "resolveTime": format!("0x{:x}", resolved_time),
                 "requestID": format!("0x{:x}", request_id),
             }
         }
     }))
-   
 }
 
 pub fn decode_tx(encoded_tx: &[u8]) -> anyhow::Result<IconTx> {
-    let tx_json: Value = serde_json::from_slice(encoded_tx)
-        .with_context(|| "Failed to parse transaction JSON")?;
+    let tx_json: Value =
+        serde_json::from_slice(encoded_tx).with_context(|| "Failed to parse transaction JSON")?;
 
-    let tx: IconTx = serde_json::from_value(tx_json)
-        .with_context(|| "Failed to deserialize transaction")?;
+    let tx: IconTx =
+        serde_json::from_value(tx_json).with_context(|| "Failed to deserialize transaction")?;
 
     Ok(tx)
 }
 
 pub fn encode_tx_for_signing(tx: &IconTx) -> anyhow::Result<Vec<u8>> {
     // Create a copy of the transaction without signature for signing
-    let mut tx_for_signing = serde_json::to_value(tx)
-        .with_context(|| "Failed to serialize transaction for signing")?;
+    let mut tx_for_signing =
+        serde_json::to_value(tx).with_context(|| "Failed to serialize transaction for signing")?;
 
     // Remove signature field if it exists
     if let Some(obj) = tx_for_signing.as_object_mut() {
@@ -91,7 +90,7 @@ pub fn encode_tx_for_signing(tx: &IconTx) -> anyhow::Result<Vec<u8>> {
         .with_context(|| "Failed to serialize transaction to string")?;
 
     // Prepend "icx_sendTransaction." as per ICON specification
-    let message = format!("icx_sendTransaction.{}", serialized);
+    let message = format!("icx_sendTransaction.{serialized}");
 
     Ok(message.into_bytes())
 }
@@ -101,15 +100,15 @@ pub fn sign_tx(tx: &mut IconTx, signature: &[u8]) -> anyhow::Result<Vec<u8>> {
     let signature_b64 = general_purpose::STANDARD.encode(signature);
 
     // Add signature to transaction
-    let mut tx_value = serde_json::to_value(tx)
-        .with_context(|| "Failed to serialize transaction")?;
+    let mut tx_value =
+        serde_json::to_value(tx).with_context(|| "Failed to serialize transaction")?;
 
     if let Some(obj) = tx_value.as_object_mut() {
         obj.insert("signature".to_string(), Value::String(signature_b64));
     }
 
-    let signed_tx = serde_json::to_vec(&tx_value)
-        .with_context(|| "Failed to encode signed transaction")?;
+    let signed_tx =
+        serde_json::to_vec(&tx_value).with_context(|| "Failed to encode signed transaction")?;
 
     Ok(signed_tx)
 }
@@ -171,7 +170,7 @@ mod tests {
                     resolve_time: "1234567890".to_string(),
                     request_id: "123".to_string(),
                 },
-            }
+            },
         };
 
         let signing_data = encode_tx_for_signing(&tx).unwrap();

@@ -1,7 +1,7 @@
 use crate::config::signer::local::ChainType;
 use crate::signer::signature::Signature;
 use crate::signer::signature::ecdsa::DerSignature;
-use crate::signer::{Signer, uncompressed_public_key_to_address, public_key_to_xrpl_address};
+use crate::signer::{Signer, public_key_to_xrpl_address, uncompressed_public_key_to_address};
 use k256::ecdsa::SigningKey as EcdsaSigningKey;
 use k256::ecdsa::signature::hazmat::PrehashSigner;
 
@@ -177,10 +177,10 @@ mod test {
     }
 
     #[test]
-    fn test_uncompressed_public_key_to_xrpl_address() {
+    fn test_public_key_to_xrpl_address() {
         let pk = hex::decode("02D5A397A10DE2C485FA5592FFD86A7B5744BC221E24F71196ACD32EB66B14264C")
             .unwrap();
-        let address = uncompressed_public_key_to_address(&pk).unwrap();
+        let address = public_key_to_xrpl_address(&pk).unwrap();
         let expected = "rpJ8fpF16aB8a4rmhkZNaXCWq3zweEzKrB";
         assert_eq!(address, expected);
     }
