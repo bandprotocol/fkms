@@ -1,7 +1,7 @@
 use anyhow::Context;
 use base64::{Engine as _, engine::general_purpose};
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use serde_json::Value;
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -40,36 +40,31 @@ pub fn create_signing_payload(
     network_id: &str,
     resolved_time: i64,
     request_id: u64,
-) -> anyhow::Result<Value> {
-    Ok(json!({
-        "version": "0x3",
-        "from": relayer,
-        "to": contract_address,
-        "timestamp": format!("0x{:x}", std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_micros()),
-        "stepLimit": format!("0x{:x}", step_limit),
-        "nid": network_id,
-        "dataType": "call",
-        "data": {
-            "method": "relay",
-            "params": {
-                "symbols": signals.iter().map(|(s, _)| s.clone()).collect::<Vec<_>>(),
-                "rates": signals.iter().map(|(_, p)| format!("0x{p:x}")).collect::<Vec<_>>(),
-                "resolveTime": format!("0x{:x}", resolved_time),
-                "requestID": format!("0x{:x}", request_id),
-            }
-        }
-    }))
-}
-
-pub fn decode_tx(encoded_tx: &[u8]) -> anyhow::Result<IconTx> {
-    let tx_json: Value =
-        serde_json::from_slice(encoded_tx).with_context(|| "Failed to parse transaction JSON")?;
-
-    let tx: IconTx =
-        serde_json::from_value(tx_json).with_context(|| "Failed to deserialize transaction")?;
-
-    Ok(tx)
+) -> anyhow::Result<IconTx> {
+    Ok(IconTx {
+        version: "0x3".to_string(),
+        from: relayer.to_string(),
+        to: contract_address.to_string(),
+        timestamp: format!(
+            "0x{:x}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_micros()
+        ),
+        step_limit: format!("0x{step_limit:x}"),
+        nid: network_id.to_string(),
+        data_type: "call".to_string(),
+        data: IconData {
+            method: "relay".to_string(),
+            params: IconParams {
+                symbols: signals.iter().map(|(s, _)| s.clone()).collect(),
+                rates: signals.iter().map(|(_, p)| format!("0x{p:x}")).collect(),
+                resolve_time: format!("0x{resolved_time:x}"),
+                request_id: format!("0x{request_id:x}"),
+            },
+        },
+    })
 }
 
 pub fn encode_tx_for_signing(tx: &IconTx) -> anyhow::Result<Vec<u8>> {
@@ -112,45 +107,6 @@ pub fn sign_tx(tx: &mut IconTx, signature: &[u8]) -> anyhow::Result<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
-
-    #[test]
-    fn test_decode_tx() {
-        let tx_json = json!({
-            "version": "0x3",
-            "from": "hx123...",
-            "to": "cx456...",
-            "timestamp": "0x123456789",
-            "stepLimit": "0x100000",
-            "nid": "0x1",
-            "dataType": "call",
-            "data": {
-                "method": "relay",
-                "params": {
-                    "symbols": ["BTC", "ETH"],
-                    "rates": ["50000", "3000"],
-                    "resolveTime": "1234567890",
-                    "requestID": "123"
-                }
-            }
-        });
-
-        let encoded = serde_json::to_vec(&tx_json).unwrap();
-        let tx = decode_tx(&encoded).unwrap();
-
-        assert_eq!(tx.version, "0x3");
-        assert_eq!(tx.from, "hx123...");
-        assert_eq!(tx.to, "cx456...");
-        assert_eq!(tx.timestamp, "0x123456789");
-        assert_eq!(tx.step_limit, "0x100000");
-        assert_eq!(tx.nid, "0x1");
-        assert_eq!(tx.data_type, "call");
-        assert_eq!(tx.data.method, "relay");
-        assert_eq!(tx.data.params.symbols, vec!["BTC", "ETH"]);
-        assert_eq!(tx.data.params.rates, vec!["50000", "3000"]);
-        assert_eq!(tx.data.params.resolve_time, "1234567890");
-        assert_eq!(tx.data.params.request_id, "123");
-    }
 
     #[test]
     fn test_encode_tx_for_signing() {

@@ -1,7 +1,6 @@
 use crate::codec::evm::decode_tx;
 use crate::codec::icon::{
-    create_signing_payload as create_icon_signing_payload, decode_tx as decode_icon_tx,
-    encode_tx_for_signing, sign_tx,
+    create_signing_payload as create_icon_signing_payload, encode_tx_for_signing, sign_tx,
 };
 use crate::codec::tss::decode_tss_message;
 use crate::codec::xrpl::create_signing_payload;
@@ -207,7 +206,7 @@ impl FkmsService for Server {
                     .map(|sp| (sp.signal.clone(), sp.price))
                     .collect();
 
-                let tx_json = create_icon_signing_payload(
+                let icon_tx = create_icon_signing_payload(
                     &signer_payload.relayer,
                     &signer_payload.contract_address,
                     signer_payload.step_limit,
@@ -220,12 +219,6 @@ impl FkmsService for Server {
                     error!("failed to create signing payload: {:?}", e);
                     Status::internal(format!("Failed to create signing payload: {e}"))
                 })?;
-
-                let tx_bytes = serde_json::to_vec(&tx_json)
-                    .map_err(|e| Status::internal(format!("Failed to serialize tx: {e}")))?;
-
-                let icon_tx = decode_icon_tx(&tx_bytes)
-                    .map_err(|e| Status::internal(format!("Failed to decode icon tx: {e}")))?;
 
                 let signing_data = encode_tx_for_signing(&icon_tx).map_err(|e| {
                     Status::internal(format!("Failed to encode tx for signing: {e}"))
