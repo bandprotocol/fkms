@@ -7,6 +7,7 @@ pub mod signature;
 use anyhow::anyhow;
 use k256::EncodedPoint;
 use k256::sha2::{Digest, Sha256};
+use sha3::Sha3_256;
 use ripemd::Ripemd160;
 
 use crate::config::signer::local::ChainType;
@@ -24,7 +25,7 @@ pub trait Signer: Send + Sync + 'static {
     fn chain_type(&self) -> &ChainType;
 }
 
-pub fn uncompressed_public_key_to_address(public_key: &[u8]) -> anyhow::Result<String> {
+pub fn public_key_to_evm_address(public_key: &[u8]) -> anyhow::Result<String> {
     // Check exact length
     if public_key.len() != 65 {
         return Err(anyhow!(
@@ -62,4 +63,22 @@ pub fn public_key_to_xrpl_address(public_key: &[u8]) -> anyhow::Result<String> {
     Ok(bs58::encode(payload)
         .with_alphabet(bs58::Alphabet::RIPPLE)
         .into_string())
+}
+
+pub fn public_key_to_icon_address(public_key: &[u8]) -> anyhow::Result<String> {
+    // Check exact length
+    if public_key.len() != 65 {
+        return Err(anyhow!(
+            "Invalid public key length for Icon address. Expected 65 bytes, got {}",
+            public_key.len()
+        ));
+    }
+
+    // We can now safely skip the first byte because we validated length and prefix
+    let mut hasher = Sha3_256::new();
+    hasher.update(&public_key[1..]);
+    let hash = hasher.finalize();
+
+    // Icon address is the last 20 bytes of the Sha3_256 hash
+    Ok(format!("hx{}", hex::encode(&hash[12..])))
 }
