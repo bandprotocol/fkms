@@ -1,7 +1,9 @@
 use crate::config::signer::local::ChainType;
 use crate::signer::signature::Signature;
 use crate::signer::signature::ecdsa::DerSignature;
-use crate::signer::{Signer, public_key_to_xrpl_address, public_key_to_evm_address, public_key_to_icon_address};
+use crate::signer::{
+    Signer, public_key_to_evm_address, public_key_to_icon_address, public_key_to_xrpl_address,
+};
 use k256::ecdsa::SigningKey as EcdsaSigningKey;
 use k256::ecdsa::signature::hazmat::PrehashSigner;
 
@@ -190,7 +192,7 @@ mod test {
         let pk = hex::decode("0409cb1cab6bd46b7b050bf8427850340bc6906b88957d584432f6fc6510688f4a7c01b45e009bd1d700b4486325c915a6d25ba69722c8ded9da0ab76941870e3d")
             .unwrap();
         let address = public_key_to_icon_address(&pk).unwrap();
-        let expected = "hx f9c62d223a203c8160f19be3588e41d9d6e67a59";
+        let expected = "hx8521060f28fdedcc4e4544ee499008809d4c0322";
         assert_eq!(address, expected);
     }
 }

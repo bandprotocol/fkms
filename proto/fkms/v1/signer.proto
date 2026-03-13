@@ -53,8 +53,7 @@ message IconSignerPayload {
   string relayer = 1;
   string contract_address = 2;
   uint64 step_limit = 3;
-  uint64 sequence_id = 4;
-  string network_id = 5;
+  string network_id = 4;
 }
 
 message Tss {

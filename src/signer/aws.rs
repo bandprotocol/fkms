@@ -1,7 +1,9 @@
 use crate::config::signer::local::ChainType;
 use crate::signer::signature::Signature;
 use crate::signer::signature::ecdsa::EcdsaSignature;
-use crate::signer::{Signer, public_key_to_xrpl_address, public_key_to_evm_address, public_key_to_icon_address};
+use crate::signer::{
+    Signer, public_key_to_evm_address, public_key_to_icon_address, public_key_to_xrpl_address,
+};
 use anyhow::anyhow;
 use aws_config::SdkConfig;
 use aws_sdk_kms::Client;

@@ -7,8 +7,8 @@ pub mod signature;
 use anyhow::anyhow;
 use k256::EncodedPoint;
 use k256::sha2::{Digest, Sha256};
-use sha3::Sha3_256;
 use ripemd::Ripemd160;
+use sha3::Sha3_256;
 
 use crate::config::signer::local::ChainType;
 
@@ -34,8 +34,15 @@ pub fn public_key_to_evm_address(public_key: &[u8]) -> anyhow::Result<String> {
         ));
     }
 
-    let mut hasher = sha3::Keccak256::new();
+    // Validate uncompressed SEC1 prefix (0x04)
+    if public_key[0] != 0x04 {
+        return Err(anyhow!(
+            "Invalid public key SEC1 prefix for EVM address. Expected 0x04 (uncompressed), got 0x{:02x}",
+            public_key[0]
+        ));
+    }
 
+    let mut hasher = sha3::Keccak256::new();
     // We can now safely skip the first byte because we validated length and prefix
     hasher.update(&public_key[1..]);
     let hash = hasher.finalize();
@@ -74,8 +81,16 @@ pub fn public_key_to_icon_address(public_key: &[u8]) -> anyhow::Result<String> {
         ));
     }
 
-    // We can now safely skip the first byte because we validated length and prefix
+    // Validate uncompressed SEC1 prefix (0x04)
+    if public_key[0] != 0x04 {
+        return Err(anyhow!(
+            "Invalid public key SEC1 prefix for Icon address. Expected 0x04 (uncompressed), got 0x{:02x}",
+            public_key[0]
+        ));
+    }
+
     let mut hasher = Sha3_256::new();
+    // We can now safely skip the first byte because we validated length and prefix
     hasher.update(&public_key[1..]);
     let hash = hasher.finalize();
 

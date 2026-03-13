@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct IconTx {
     pub version: String,
     pub from: String,
@@ -22,18 +23,13 @@ pub struct IconData {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct IconParams {
     pub symbols: Vec<String>,
     pub rates: Vec<String>,
     pub resolve_time: String,
+    #[serde(rename = "requestID")]
     pub request_id: String,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct Tss {
-    pub message: String,
-    pub random_addr: String,
-    pub signature_s: String,
 }
 
 pub fn create_signing_payload(
@@ -51,9 +47,9 @@ pub fn create_signing_payload(
         "to": contract_address,
         "timestamp": format!("0x{:x}", std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_micros()),
-        "step_limit": format!("0x{:x}", step_limit),
+        "stepLimit": format!("0x{:x}", step_limit),
         "nid": network_id,
-        "data_type": "call",
+        "dataType": "call",
         "data": {
             "method": "relay",
             "params": {
@@ -125,22 +121,17 @@ mod tests {
             "from": "hx123...",
             "to": "cx456...",
             "timestamp": "0x123456789",
-            "step_limit": "0x100000",
+            "stepLimit": "0x100000",
             "nid": "0x1",
-            "data_type": "call",
+            "dataType": "call",
             "data": {
                 "method": "relay",
                 "params": {
                     "symbols": ["BTC", "ETH"],
                     "rates": ["50000", "3000"],
-                    "resolve_time": "1234567890",
-                    "request_id": "123"
+                    "resolveTime": "1234567890",
+                    "requestID": "123"
                 }
-            },
-            "tss": {
-                "message": "test_message",
-                "random_addr": "hx789...",
-                "signature_s": "0x123..."
             }
         });
 
@@ -148,8 +139,17 @@ mod tests {
         let tx = decode_tx(&encoded).unwrap();
 
         assert_eq!(tx.version, "0x3");
+        assert_eq!(tx.from, "hx123...");
+        assert_eq!(tx.to, "cx456...");
+        assert_eq!(tx.timestamp, "0x123456789");
+        assert_eq!(tx.step_limit, "0x100000");
+        assert_eq!(tx.nid, "0x1");
+        assert_eq!(tx.data_type, "call");
         assert_eq!(tx.data.method, "relay");
         assert_eq!(tx.data.params.symbols, vec!["BTC", "ETH"]);
+        assert_eq!(tx.data.params.rates, vec!["50000", "3000"]);
+        assert_eq!(tx.data.params.resolve_time, "1234567890");
+        assert_eq!(tx.data.params.request_id, "123");
     }
 
     #[test]
@@ -178,5 +178,20 @@ mod tests {
 
         // Should start with "icx_sendTransaction."
         assert!(signing_str.starts_with("icx_sendTransaction."));
+
+        // Should contain all fields except signature
+        assert!(signing_str.contains(r#""version":"0x3""#));
+        assert!(signing_str.contains(r#""from":"hx123...""#));
+        assert!(signing_str.contains(r#""to":"cx456...""#));
+        assert!(signing_str.contains(r#""timestamp":"0x123456789""#));
+        assert!(signing_str.contains(r#""stepLimit":"0x100000""#));
+        assert!(signing_str.contains(r#""nid":"0x1""#));
+        assert!(signing_str.contains(r#""dataType":"call""#));
+        assert!(signing_str.contains(r#""method":"relay""#));
+        assert!(signing_str.contains(r#""symbols":["BTC","ETH"]"#));
+        assert!(signing_str.contains(r#""rates":["50000","3000"]"#));
+        assert!(signing_str.contains(r#""resolveTime":"1234567890""#));
+        assert!(signing_str.contains(r#""requestID":"123""#));
+        assert!(!signing_str.contains("signature"));
     }
 }
