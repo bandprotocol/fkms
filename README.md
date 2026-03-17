@@ -2,7 +2,7 @@
 
 ## Overview
 
-`fkms` is a Key Management Service (KMS) written in Rust, designed to sign transactions originating from [Falcon](https://github.com/bandprotocol/falcon). It provides secure key management and signing capabilities for EVM-compatible blockchains, ICON, and XRPL (secp256k1), supporting both local and AWS KMS-backed signers. The service exposes a gRPC API for signing and key management operations, and is designed to be easily configurable and extensible with middleware (e.g., authentication).
+`fkms` is a Key Management Service (KMS) written in Rust, designed to sign transactions originating from [Falcon](https://github.com/bandprotocol/falcon). It provides secure key management and signing capabilities for EVM-compatible blockchains (via local and AWS KMS-backed signers) and ICON and XRPL (secp256k1) via local signers. The service exposes a gRPC API for signing and key management operations, and is designed to be easily configurable and extensible with middleware (e.g., authentication).
 
 ## Prerequisites
 Before building and running `fkms`, ensure the following dependency is installed:
@@ -24,11 +24,11 @@ Before building and running `fkms`, ensure the following dependency is installed
     ```sh
     cargo install --path .
     ```
-   - With AWS KMS support:
+   - With AWS KMS support (EVM-compatible chains only):
     ```sh
     cargo install --path . --features aws
     ```
-   - Both Local and AWS KMS support:
+   - Both Local and AWS KMS support (AWS KMS for EVM-compatible chains; ICON/XRPL via local signers):
     ```sh
     cargo install --path . --features local,aws
     ```
@@ -80,7 +80,7 @@ expired_time = 1234567890
 
 | Type          | Description                                    | Required Fields                                |
 | --------------| ---------------------------------------------- | -----------------------------------------------|
-| `private_key` | Load private key from an environment variable (Currently support EVM, ICON) | `env_variable`, `encoding`                     |
+| `private_key` | Load private key from an environment variable (Currently support EVM, ICON, XRPL) | `env_variable`, `encoding`                     |
 | `mnemonic`    | Load mnemonic from an environment variable     | `env_variable`, `coin_type`, `account`, `index`|
 
 ## Encoding Options
