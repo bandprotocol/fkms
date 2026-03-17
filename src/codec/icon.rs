@@ -1,5 +1,4 @@
 use anyhow::Context;
-#[cfg(feature = "local")]
 use base64::{Engine as _, engine::general_purpose};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -42,14 +41,15 @@ pub fn create_signing_payload(
     resolved_time: u64,
     request_id: u64,
 ) -> anyhow::Result<IconTx> {
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .context("system time is before UNIX_EPOCH when creating ICON signing payload")?
+        .as_micros() as i64;
     Ok(IconTx {
         version: "0x3".to_string(),
         from: relayer.to_string(),
         to: contract_address.to_string(),
-        timestamp: std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_micros() as i64,
+        timestamp,
         step_limit,
         nid: network_id.to_string(),
         data_type: "call".to_string(),
