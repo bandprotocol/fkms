@@ -35,7 +35,7 @@ pub struct IconParams {
 pub fn create_signing_payload(
     relayer: &str,
     contract_address: &str,
-    step_limit: i64,
+    step_limit: u64,
     signals: &[(String, u64)],
     network_id: &str,
     resolved_time: u64,
