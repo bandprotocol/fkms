@@ -206,13 +206,16 @@ impl FkmsService for Server {
                     .map(|sp| (sp.signal.clone(), sp.price))
                     .collect();
 
+                let timestamp = u64::try_from(tunnel_packet.timestamp).map_err(|_| {
+                     Status::invalid_argument("Timestamp must be non-negative")
+                 })?;
                 let icon_tx = create_icon_signing_payload(
                     &signer_payload.relayer,
                     &signer_payload.contract_address,
                     signer_payload.step_limit,
                     &signals,
                     &signer_payload.network_id,
-                    tunnel_packet.timestamp as u64,
+                    timestamp,
                     tunnel_packet.sequence,
                 )
                 .map_err(|e| {
