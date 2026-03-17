@@ -44,7 +44,7 @@ impl AwsSigner {
                 let address = public_key_to_evm_address(&public_key)?;
                 (public_key, address)
             }
-            _ => return Err(anyhow!("Unsupported Chain Type")),
+            _ => return Err(anyhow!("Unsupported Chain Type: {:?}", chain_type)),
         };
 
         Ok(Self {
@@ -79,7 +79,7 @@ impl Signer for AwsSigner {
                 let recoverable_signature: EcdsaSignature = (signature, recovery_id);
                 Ok(recoverable_signature.into_vec())
             }
-            _ => Err(anyhow!("Unsupported Chain Type")),
+            _ => Err(anyhow!("Unsupported Chain Type: {:?}", self.chain_type)),
         }
     }
 
