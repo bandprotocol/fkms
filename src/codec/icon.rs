@@ -9,8 +9,8 @@ pub struct IconTx {
     pub version: String,
     pub from: String,
     pub to: String,
-    pub timestamp: String,
-    pub step_limit: String,
+    pub timestamp: i64,
+    pub step_limit: i64,
     pub nid: String,
     pub data_type: String,
     pub data: IconData,
@@ -26,42 +26,39 @@ pub struct IconData {
 #[serde(rename_all = "camelCase")]
 pub struct IconParams {
     pub symbols: Vec<String>,
-    pub rates: Vec<String>,
-    pub resolve_time: String,
+    pub rates: Vec<u64>,
+    pub resolve_time: u64,
     #[serde(rename = "requestID")]
-    pub request_id: String,
+    pub request_id: u64,
 }
 
 pub fn create_signing_payload(
     relayer: &str,
     contract_address: &str,
-    step_limit: u64,
+    step_limit: i64,
     signals: &[(String, u64)],
     network_id: &str,
-    resolved_time: i64,
+    resolved_time: u64,
     request_id: u64,
 ) -> anyhow::Result<IconTx> {
     Ok(IconTx {
         version: "0x3".to_string(),
         from: relayer.to_string(),
         to: contract_address.to_string(),
-        timestamp: format!(
-            "0x{:x}",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_micros()
-        ),
-        step_limit: format!("0x{step_limit:x}"),
+        timestamp: std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_micros() as i64,
+        step_limit,
         nid: network_id.to_string(),
         data_type: "call".to_string(),
         data: IconData {
             method: "relay".to_string(),
             params: IconParams {
                 symbols: signals.iter().map(|(s, _)| s.clone()).collect(),
-                rates: signals.iter().map(|(_, p)| format!("0x{p:x}")).collect(),
-                resolve_time: format!("0x{resolved_time:x}"),
-                request_id: format!("0x{request_id:x}"),
+                rates: signals.iter().map(|(_, p)| *p).collect(),
+                resolve_time: resolved_time,
+                request_id,
             },
         },
     })
@@ -86,7 +83,7 @@ pub fn encode_tx_for_signing(tx: &IconTx) -> anyhow::Result<Vec<u8>> {
     Ok(message.into_bytes())
 }
 
-pub fn sign_tx(tx: &mut IconTx, signature: &[u8]) -> anyhow::Result<Vec<u8>> {
+pub fn sign_tx(tx: &IconTx, signature: &[u8]) -> anyhow::Result<Vec<u8>> {
     // Encode signature as base64
     let signature_b64 = general_purpose::STANDARD.encode(signature);
 
@@ -109,22 +106,56 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_create_signing_payload() {
+        let relayer = "hx123...";
+        let contract_address = "cx456...";
+        let step_limit = 100000;
+        let signals = vec![("BTC".to_string(), 50000), ("ETH".to_string(), 3000)];
+        let network_id = "0x1";
+        let resolved_time = 1234567890;
+        let request_id = 123;
+
+        let tx = create_signing_payload(
+            relayer,
+            contract_address,
+            step_limit,
+            &signals,
+            network_id,
+            resolved_time,
+            request_id,
+        )
+        .unwrap();
+
+        assert_eq!(tx.version, "0x3");
+        assert_eq!(tx.from, relayer);
+        assert_eq!(tx.to, contract_address);
+        assert_eq!(tx.step_limit, step_limit);
+        assert_eq!(tx.nid, network_id);
+        assert_eq!(tx.data_type, "call");
+        assert_eq!(tx.data.method, "relay");
+        assert_eq!(tx.data.params.symbols, vec!["BTC", "ETH"]);
+        assert_eq!(tx.data.params.rates, vec![50000, 3000]);
+        assert_eq!(tx.data.params.resolve_time, resolved_time);
+        assert_eq!(tx.data.params.request_id, request_id);
+    }
+
+    #[test]
     fn test_encode_tx_for_signing() {
         let tx = IconTx {
             version: "0x3".to_string(),
             from: "hx123...".to_string(),
             to: "cx456...".to_string(),
-            timestamp: "0x123456789".to_string(),
-            step_limit: "0x100000".to_string(),
+            timestamp: 1234567890,
+            step_limit: 100000,
             nid: "0x1".to_string(),
             data_type: "call".to_string(),
             data: IconData {
                 method: "relay".to_string(),
                 params: IconParams {
                     symbols: vec!["BTC".to_string(), "ETH".to_string()],
-                    rates: vec!["50000".to_string(), "3000".to_string()],
-                    resolve_time: "1234567890".to_string(),
-                    request_id: "123".to_string(),
+                    rates: vec![50000, 3000],
+                    resolve_time: 1234567890,
+                    request_id: 123,
                 },
             },
         };
@@ -139,15 +170,59 @@ mod tests {
         assert!(signing_str.contains(r#""version":"0x3""#));
         assert!(signing_str.contains(r#""from":"hx123...""#));
         assert!(signing_str.contains(r#""to":"cx456...""#));
-        assert!(signing_str.contains(r#""timestamp":"0x123456789""#));
-        assert!(signing_str.contains(r#""stepLimit":"0x100000""#));
+        assert!(signing_str.contains(r#""timestamp":1234567890"#));
+        assert!(signing_str.contains(r#""stepLimit":100000"#));
         assert!(signing_str.contains(r#""nid":"0x1""#));
         assert!(signing_str.contains(r#""dataType":"call""#));
         assert!(signing_str.contains(r#""method":"relay""#));
         assert!(signing_str.contains(r#""symbols":["BTC","ETH"]"#));
-        assert!(signing_str.contains(r#""rates":["50000","3000"]"#));
-        assert!(signing_str.contains(r#""resolveTime":"1234567890""#));
-        assert!(signing_str.contains(r#""requestID":"123""#));
+        assert!(signing_str.contains(r#""rates":[50000,3000]"#));
+        assert!(signing_str.contains(r#""resolveTime":1234567890"#));
+        assert!(signing_str.contains(r#""requestID":123"#));
         assert!(!signing_str.contains("signature"));
+    }
+
+    #[test]
+    fn test_sign_tx() {
+        let tx = IconTx {
+            version: "0x3".to_string(),
+            from: "hx123...".to_string(),
+            to: "cx456...".to_string(),
+            timestamp: 1234567890,
+            step_limit: 100000,
+            nid: "0x1".to_string(),
+            data_type: "call".to_string(),
+            data: IconData {
+                method: "relay".to_string(),
+                params: IconParams {
+                    symbols: vec!["BTC".to_string(), "ETH".to_string()],
+                    rates: vec![50000, 3000],
+                    resolve_time: 1234567890,
+                    request_id: 123,
+                },
+            },
+        };
+
+        let signature = vec![0x01, 0x02, 0x03, 0x04];
+        let signed_tx = sign_tx(&tx, &signature).unwrap();
+        let signed_tx_str = String::from_utf8(signed_tx).unwrap();
+
+        // Should contain all original fields
+        assert!(signed_tx_str.contains(r#""version":"0x3""#));
+        assert!(signed_tx_str.contains(r#""from":"hx123...""#));
+        assert!(signed_tx_str.contains(r#""to":"cx456...""#));
+        assert!(signed_tx_str.contains(r#""timestamp":1234567890"#));
+        assert!(signed_tx_str.contains(r#""stepLimit":100000"#));
+        assert!(signed_tx_str.contains(r#""nid":"0x1""#));
+        assert!(signed_tx_str.contains(r#""dataType":"call""#));
+        assert!(signed_tx_str.contains(r#""method":"relay""#));
+        assert!(signed_tx_str.contains(r#""symbols":["BTC","ETH"]"#));
+        assert!(signed_tx_str.contains(r#""rates":[50000,3000]"#));
+        assert!(signed_tx_str.contains(r#""resolveTime":1234567890"#));
+        assert!(signed_tx_str.contains(r#""requestID":123"#));
+
+        // Should contain signature field with base64 encoded value
+        let expected_signature_b64 = general_purpose::STANDARD.encode(&signature);
+        assert!(signed_tx_str.contains(&format!(r#""signature":"{expected_signature_b64}""#)));
     }
 }

@@ -52,7 +52,7 @@ message XrplSignerPayload {
 message IconSignerPayload {
   string relayer = 1;
   string contract_address = 2;
-  uint64 step_limit = 3;
+  int64 step_limit = 3;
   string network_id = 4;
 }
 

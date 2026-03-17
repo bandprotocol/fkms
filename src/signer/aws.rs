@@ -1,9 +1,7 @@
 use crate::config::signer::local::ChainType;
 use crate::signer::signature::Signature;
 use crate::signer::signature::ecdsa::EcdsaSignature;
-use crate::signer::{
-    Signer, public_key_to_evm_address, public_key_to_icon_address, public_key_to_xrpl_address,
-};
+use crate::signer::{Signer, public_key_to_evm_address};
 use anyhow::anyhow;
 use aws_config::SdkConfig;
 use aws_sdk_kms::Client;
@@ -46,16 +44,7 @@ impl AwsSigner {
                 let address = public_key_to_evm_address(&public_key)?;
                 (public_key, address)
             }
-            ChainType::Xrpl => {
-                let public_key = verifying_key.to_encoded_point(true).as_bytes().to_vec();
-                let address = public_key_to_xrpl_address(&public_key)?;
-                (public_key, address)
-            }
-            ChainType::Icon => {
-                let public_key = verifying_key.to_encoded_point(false).as_bytes().to_vec();
-                let address = public_key_to_icon_address(&public_key)?;
-                (public_key, address)
-            }
+            _ => return Err(anyhow!("Unsupported Chain Type")),
         };
 
         Ok(Self {

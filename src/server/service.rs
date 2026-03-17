@@ -212,7 +212,7 @@ impl FkmsService for Server {
                     signer_payload.step_limit,
                     &signals,
                     &signer_payload.network_id,
-                    tunnel_packet.timestamp,
+                    tunnel_packet.timestamp as u64,
                     tunnel_packet.sequence,
                 )
                 .map_err(|e| {
@@ -229,8 +229,8 @@ impl FkmsService for Server {
 
                 match signer.sign(&digest).await {
                     Ok(signature) => {
-                        let mut signed_tx = icon_tx;
-                        let tx_params = sign_tx(&mut signed_tx, &signature)
+                        let signed_tx = icon_tx;
+                        let tx_params = sign_tx(&signed_tx, &signature)
                             .map_err(|e| Status::internal(format!("Failed to sign tx: {e}")))?;
 
                         info!("successfully signed icon message");
