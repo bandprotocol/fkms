@@ -22,7 +22,7 @@ pub fn create_signing_payload(
             "Account": account,
             "OracleDocumentID": oracle_id,
             "Provider": str_to_hex("Band Protocol", None)?,
-            "AssetClass": str_to_hex("Currency", None)?,
+            "AssetClass": str_to_hex("currency", None)?,
             "LastUpdateTime": last_update_time,
             "PriceDataSeries": signals
                 .iter()
