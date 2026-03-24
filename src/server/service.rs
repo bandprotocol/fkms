@@ -2,6 +2,7 @@ use crate::codec::evm::decode_tx;
 use crate::codec::icon::{
     create_signing_payload as create_icon_signing_payload, encode_tx_for_signing, sign_tx,
 };
+use crate::codec::flow;
 use crate::codec::tss::decode_tss_message;
 use crate::codec::xrpl::create_signing_payload;
 use crate::codec::xrpl::{encode_for_signing, encode_with_signature};
@@ -10,7 +11,7 @@ use crate::proto::fkms::v1::ChainType as proto_chain_type;
 use crate::proto::fkms::v1::fkms_service_server::FkmsService;
 use crate::proto::fkms::v1::{
     GetSignerAddressesRequest, GetSignerAddressesResponse, SignEvmRequest, SignEvmResponse,
-    SignIconRequest, SignIconResponse, SignXrplRequest, SignXrplResponse, Signers,
+    SignIconRequest, SignIconResponse, SignFlowRequest, SignFlowResponse, SignXrplRequest, SignXrplResponse, Signers,
 };
 use crate::server::Server;
 use crate::server::utils::filter_usd_signal;
@@ -252,6 +253,106 @@ impl FkmsService for Server {
         }
     }
 
+    #[instrument(skip(self, request))]
+    async fn sign_flow(
+        &self,
+        request: Request<SignFlowRequest>,
+    ) -> Result<Response<SignFlowResponse>, Status> {
+        let sign_flow_request = request.into_inner();
+
+        let signer_payload = sign_flow_request.signer_payload.ok_or_else(|| {
+            Status::invalid_argument("signer_payload field is required and cannot be null")
+        })?;
+
+        let tss = sign_flow_request
+            .tss
+            .ok_or_else(|| Status::invalid_argument("tss field is required and cannot be null"))?;
+
+        // verify tss signature
+        if let Some(verifier) = &self.tss_signature_verifier {
+            verifier
+                .verify_signature(&tss.message, &tss.random_addr, &tss.signature_s)
+                .map_err(|e| {
+                    error!("failed to verify tss message: {:?}", e);
+                    Status::invalid_argument(format!("Failed to verify tss signature: {e}"))
+                })?;
+        }
+
+        // extract prices from tss message
+        let decoded_tss_message = decode_tss_message(&tss.message)
+            .map_err(|e| Status::internal(format!("Failed to decode TSS message: {}", e)))?;
+        let tunnel_packet = decoded_tss_message.packet;
+
+        // run pre sign hooks
+        for hook in &self.pre_sign_hooks {
+            hook.call(&tunnel_packet).await?;
+        }
+
+        match self
+            .signers
+            .get(&(ChainType::Flow, signer_payload.address.clone()))
+        {
+            Some(signer) => {
+                let signals: Vec<(String, u64)> = tunnel_packet
+                    .signals
+                    .iter()
+                    .map(|sp| (sp.signal.clone(), sp.price))
+                    .collect();
+
+                // resolve_time = TSS timestamp, request_id = TSS sequence
+                let resolve_time = tunnel_packet.timestamp as u64;
+                let request_id = tunnel_packet.sequence;
+
+                let payload_rlp = flow::build_payload_rlp(
+                    &signals,
+                    &signer_payload.address,
+                    signer_payload.compute_limit,
+                    &signer_payload.block_id,
+                    signer_payload.key_index,
+                    signer_payload.sequence,
+                    &signer_payload.script,
+                    resolve_time,
+                    request_id,
+                )
+                .map_err(|e| {
+                    error!("failed to build flow payload RLP: {:?}", e);
+                    Status::internal(format!("Failed to build flow payload RLP: {e}"))
+                })?;
+
+                let envelope_hash =
+                    flow::build_transaction_envelope_hash(&payload_rlp).map_err(|e| {
+                        error!("failed to build flow envelope hash: {:?}", e);
+                        Status::internal(format!("Failed to build transaction envelope hash: {e}"))
+                    })?;
+
+                match signer.sign(&envelope_hash).await {
+                    Ok(signature) => {
+                        let tx_blob = flow::encode_signed_transaction(
+                            &payload_rlp,
+                            signer_payload.key_index,
+                            &signature,
+                        )
+                        .map_err(|e| {
+                            error!("failed to encode signed flow transaction: {:?}", e);
+                            Status::internal(format!("Failed to encode signed transaction: {e}"))
+                        })?;
+
+                        info!("successfully signed flow transaction");
+                        Ok(Response::new(SignFlowResponse { tx_blob }))
+                    }
+                    Err(e) => {
+                        error!("failed to sign flow transaction: {:?}", e);
+                        Err(Status::internal(format!("Failed to sign message: {e}")))
+                    }
+                }
+            }
+            None => {
+                warn!("no signer found for {}", signer_payload.address);
+                Err(Status::not_found("Signer not found"))
+            }
+        }
+    }
+
     #[instrument(skip(self, _request))]
     async fn get_signer_addresses(
         &self,
@@ -274,6 +375,7 @@ impl FkmsService for Server {
                     ChainType::Evm => proto_chain_type::Evm,
                     ChainType::Xrpl => proto_chain_type::Xrpl,
                     ChainType::Icon => proto_chain_type::Icon,
+                    ChainType::Flow => proto_chain_type::Flow,
                 };
                 Signers {
                     chain_type: proto_ct as i32,

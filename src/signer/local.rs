@@ -1,13 +1,23 @@
 use crate::config::signer::local::ChainType;
 use crate::signer::signature::Signature;
-use crate::signer::signature::ecdsa::DerSignature;
+use crate::signer::signature::ecdsa::{DerSignature, P256Signature};
 use crate::signer::{
     Signer, public_key_to_evm_address, public_key_to_icon_address, public_key_to_xrpl_address,
 };
-use k256::ecdsa::SigningKey as EcdsaSigningKey;
+use ecdsa::SignatureSize;
+use ecdsa::hazmat::SignPrimitive;
+use ecdsa::{PrimeCurve, SigningKey as EcdsaSigningKey};
+use elliptic_curve::generic_array::ArrayLength;
+use elliptic_curve::ops::Invert;
+use elliptic_curve::sec1::ToEncodedPoint;
+use elliptic_curve::sec1::{self, FromEncodedPoint};
+use elliptic_curve::subtle::CtOption;
+use elliptic_curve::{AffinePoint, FieldBytesSize, Scalar};
+use k256::ecdsa::SigningKey as K256SigningKey;
 use k256::ecdsa::signature::hazmat::PrehashSigner;
+use k256::elliptic_curve::CurveArithmetic;
+use p256::ecdsa::SigningKey as P256SigningKey;
 
-// ECDSA Signer (secp256k1)
 pub struct LocalSigner {
     signing_key: SigningKey,
     public_key: Vec<u8>,
@@ -16,29 +26,46 @@ pub struct LocalSigner {
 }
 
 pub enum SigningKey {
-    Ecdsa(EcdsaSigningKey),
+    EcdsaK256(K256SigningKey),
+    EcdsaP256(P256SigningKey),
 }
 
 impl LocalSigner {
-    pub fn new(private_key: &[u8], chain_type: &ChainType) -> anyhow::Result<Self> {
+    pub fn new(
+        private_key: &[u8],
+        chain_type: &ChainType,
+        address_override: Option<&str>,
+    ) -> anyhow::Result<Self> {
         let (signing_key, public_key, address) = match chain_type {
             ChainType::Evm => {
-                let signing_key = EcdsaSigningKey::from_slice(private_key)?;
-                let public_key = create_public_key(&signing_key, false);
+                let signing_key = K256SigningKey::from_slice(private_key)?;
+                let public_key = create_ecdsa_public_key(&signing_key, false);
                 let address = public_key_to_evm_address(&public_key)?;
-                (SigningKey::Ecdsa(signing_key), public_key, address)
+                (SigningKey::EcdsaK256(signing_key), public_key, address)
             }
             ChainType::Xrpl => {
-                let signing_key = EcdsaSigningKey::from_slice(private_key)?;
-                let public_key = create_public_key(&signing_key, true);
+                let signing_key = K256SigningKey::from_slice(private_key)?;
+                let public_key = create_ecdsa_public_key(&signing_key, true);
                 let address = public_key_to_xrpl_address(&public_key)?;
-                (SigningKey::Ecdsa(signing_key), public_key, address)
+                (SigningKey::EcdsaK256(signing_key), public_key, address)
             }
             ChainType::Icon => {
                 let signing_key = EcdsaSigningKey::from_slice(private_key)?;
-                let public_key = create_public_key(&signing_key, false);
+                let public_key = create_ecdsa_public_key(&signing_key, true);
                 let address = public_key_to_icon_address(&public_key)?;
-                (SigningKey::Ecdsa(signing_key), public_key, address)
+                (SigningKey::EcdsaK256(signing_key), public_key, address)
+            }
+            ChainType::Flow => {
+                let address = address_override
+                    .ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "Flow chain type requires address_override in config (Flow addresses are network-assigned)"
+                        )
+                    })?
+                    .to_string();
+                let signing_key = P256SigningKey::from_slice(private_key)?;
+                let public_key = create_ecdsa_public_key(&signing_key, false);
+                (SigningKey::EcdsaP256(signing_key), public_key, address)
             }
         };
 
@@ -52,18 +79,32 @@ impl LocalSigner {
 
     async fn sign_ecdsa(&self, message: &[u8]) -> anyhow::Result<Vec<u8>> {
         match &self.signing_key {
-            SigningKey::Ecdsa(signing_key) => {
+            SigningKey::EcdsaK256(signing_key) => {
                 Ok(signing_key.sign_prehash_recoverable(message)?.into_vec())
             }
+            _ => Err(anyhow::anyhow!(
+                "Wrong signing key type for secp256k1 ECDSA"
+            )),
         }
     }
 
     async fn sign_der(&self, message: &[u8]) -> anyhow::Result<Vec<u8>> {
         match &self.signing_key {
-            SigningKey::Ecdsa(signing_key) => {
+            SigningKey::EcdsaK256(signing_key) => {
                 let signature: DerSignature = signing_key.sign_prehash(message)?;
                 Ok(signature.into_vec())
             }
+            _ => Err(anyhow::anyhow!("Wrong signing key type for DER ECDSA")),
+        }
+    }
+
+    async fn sign_p256(&self, message: &[u8]) -> anyhow::Result<Vec<u8>> {
+        match &self.signing_key {
+            SigningKey::EcdsaP256(signing_key) => {
+                let signature: P256Signature = signing_key.sign_prehash(message)?;
+                Ok(signature.to_bytes().to_vec())
+            }
+            _ => Err(anyhow::anyhow!("Wrong signing key type for P-256 ECDSA")),
         }
     }
 }
@@ -75,6 +116,7 @@ impl Signer for LocalSigner {
             ChainType::Evm => self.sign_ecdsa(message).await,
             ChainType::Xrpl => self.sign_der(message).await,
             ChainType::Icon => self.sign_ecdsa(message).await,
+            ChainType::Flow => self.sign_p256(message).await,
         }
     }
 
@@ -91,7 +133,14 @@ impl Signer for LocalSigner {
     }
 }
 
-fn create_public_key(signing_key: &EcdsaSigningKey, compressed: bool) -> Vec<u8> {
+fn create_ecdsa_public_key<C>(signing_key: &EcdsaSigningKey<C>, compressed: bool) -> Vec<u8>
+where
+    C: PrimeCurve + CurveArithmetic,
+    Scalar<C>: Invert<Output = CtOption<Scalar<C>>> + SignPrimitive<C>,
+    SignatureSize<C>: ArrayLength<u8>,
+    AffinePoint<C>: FromEncodedPoint<C> + ToEncodedPoint<C>,
+    FieldBytesSize<C>: sec1::ModulusSize,
+{
     signing_key
         .verifying_key()
         .to_encoded_point(compressed)
@@ -110,7 +159,7 @@ mod test {
     async fn test_sign_ecdsa() {
         let pk = hex::decode("d430736144cbe3c083b22b8b5975eef970bf04336dda98748bbef1a3e5e5713a")
             .unwrap();
-        let signer = LocalSigner::new(&pk, &ChainType::Evm).unwrap();
+        let signer = LocalSigner::new(&pk, &ChainType::Evm, None).unwrap();
         let message = b"Hello, world!";
         let signature = hex::encode(
             &signer
@@ -127,7 +176,7 @@ mod test {
     async fn test_sign_der() {
         let pk = hex::decode("45ea1ad910df93d1a021a42f384aad55c7c65d565ad6b2203a4ba50418922a7b")
             .unwrap();
-        let signer = LocalSigner::new(&pk, &ChainType::Evm).unwrap();
+        let signer = LocalSigner::new(&pk, &ChainType::Evm, None).unwrap();
         let message = &Sha512::digest(b"Hello, world!")[..32];
         let signature = hex::encode(signer.sign_der(message).await.unwrap());
         let expected = "304402203a3fcf5aadf9e26bc931fc54a924013413d80fb538c5048fc4e4c8dd2e6c178502202de7b72145515c0d23ed4f2bce9dd26541c26059557a607ccdcfee47d88cd1eb";
@@ -135,11 +184,22 @@ mod test {
         assert_eq!(signature, expected);
     }
 
+    #[tokio::test]
+    async fn test_sign_p256_raw_produces_64_bytes() {
+        // P-256 test key (32 bytes random)
+        let pk = hex::decode("c9afa9d845ba75166b5c215767b1d6934e50c3db36e89b127b8a622b120f6721")
+            .unwrap();
+        let signer = LocalSigner::new(&pk, &ChainType::Flow, Some("0x1234567890abcdef")).unwrap();
+        let message = [0u8; 32]; // 32-byte prehash
+        let signature = signer.sign_p256(&message).await.unwrap();
+        assert_eq!(signature.len(), 64);
+    }
+
     #[test]
     fn test_address_generation_evm() {
         let pk = hex::decode("d430736144cbe3c083b22b8b5975eef970bf04336dda98748bbef1a3e5e5713a")
             .unwrap();
-        let signer = LocalSigner::new(&pk, &ChainType::Evm).unwrap();
+        let signer = LocalSigner::new(&pk, &ChainType::Evm, None).unwrap();
         assert_eq!(
             signer.address(),
             "0x994df35cc8d6954155ec2d9d3d59b40d0e0bce93"
@@ -150,8 +210,23 @@ mod test {
     fn test_address_generation_xrpl() {
         let pk = hex::decode("D5A397A10DE2C485FA5592FFD86A7B5744BC221E24F71196ACD32EB66B14264C")
             .unwrap();
-        let signer = LocalSigner::new(&pk, &ChainType::Xrpl).unwrap();
+        let signer = LocalSigner::new(&pk, &ChainType::Xrpl, None).unwrap();
         assert_eq!(signer.address(), "rpeTutzWtCQbVv9EmwJFQvtebkMw42ujnG");
+    }
+
+    #[test]
+    fn test_address_generation_flow_uses_override() {
+        let pk = hex::decode("c9afa9d845ba75166b5c215767b1d6934e50c3db36e89b127b8a622b120f6721")
+            .unwrap();
+        let signer = LocalSigner::new(&pk, &ChainType::Flow, Some("0x1234567890abcdef")).unwrap();
+        assert_eq!(signer.address(), "0x1234567890abcdef");
+    }
+
+    #[test]
+    fn test_flow_missing_address_override_errors() {
+        let pk = hex::decode("c9afa9d845ba75166b5c215767b1d6934e50c3db36e89b127b8a622b120f6721")
+            .unwrap();
+        assert!(LocalSigner::new(&pk, &ChainType::Flow, None).is_err());
     }
 
     #[test]
