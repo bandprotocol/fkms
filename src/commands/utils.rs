@@ -62,7 +62,7 @@ fn derive_credential_from_mnemonic(
     account: u32,
     index: u32,
 ) -> anyhow::Result<Vec<u8>> {
-    let hd_path = format!("m/44'/{}'/{}'/0/{}", coin_type, account, index);
+    let hd_path = format!("m/44'/{coin_type}'/{account}'/0/{index}");
 
     let signer = MnemonicBuilder::<English>::default()
         .phrase(mnemonic)

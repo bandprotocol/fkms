@@ -2,7 +2,7 @@
 
 ## Overview
 
-`fkms` is a Key Management Service (KMS) written in Rust, designed to sign transactions originating from [Falcon](https://github.com/bandprotocol/falcon). It provides secure key management and signing capabilities for EVM-compatible blockchains and XRPL (secp256k1), supporting both local and AWS KMS-backed signers. The service exposes a gRPC API for signing and key management operations, and is designed to be easily configurable and extensible with middleware (e.g., authentication).
+`fkms` is a Key Management Service (KMS) written in Rust, designed to sign transactions originating from [Falcon](https://github.com/bandprotocol/falcon). It provides secure key management and signing capabilities for EVM-compatible blockchains (via local and AWS KMS-backed signers) and ICON and XRPL (secp256k1) via local signers. The service exposes a gRPC API for signing and key management operations, and is designed to be easily configurable and extensible with middleware (e.g., authentication).
 
 ## Prerequisites
 Before building and running `fkms`, ensure the following dependency is installed:
@@ -13,26 +13,26 @@ Before building and running `fkms`, ensure the following dependency is installed
 ## Installation
 
 1. **Clone the repository:**
-   ```sh
-   git clone https://github.com/bandprotocol/fkms.git
-   cd fkms
-   ```
+    ```sh
+    git clone https://github.com/bandprotocol/fkms.git
+    cd fkms
+    ```
 2. **Build and install the binary:**
 
-    By default, the `fkms` binary is compiled with the local feature enabled, supporting local key management. If you wish to enable additional features (such as AWS KMS integration), you can specify them explicitly during installation:
-    - Default (local signer only)
+   By default, the `fkms` binary is compiled with the local feature enabled, supporting local key management. If you wish to enable additional features (such as AWS KMS integration), you can specify them explicitly during installation:
+   - Default (local signer only)
       ```sh
       cargo install --path .
       ```
-    - With AWS KMS support:
+   - With AWS KMS support (EVM-compatible chains only):
       ```sh
       cargo install --path . --features aws
       ```
-    - Both Local and AWS KMS support:
+   - Both Local and AWS KMS support (AWS KMS for EVM-compatible chains; ICON/XRPL via local signers):
       ```sh
       cargo install --path . --features local,aws
       ```
-   This will compile and install the fkms executable 
+  This will compile and install the fkms executable 
 
 ## Configuration
 
@@ -80,7 +80,7 @@ expired_time = 1234567890
 
 | Type          | Description                                    | Required Fields                                |
 | --------------| ---------------------------------------------- | -----------------------------------------------|
-| `private_key` | Load private key from an environment variable (Currently support only EVM) | `env_variable`, `encoding`                     |
+| `private_key` | Load private key from an environment variable (Currently support EVM, ICON, XRPL) | `env_variable`, `encoding`                     |
 | `mnemonic`    | Load mnemonic from an environment variable     | `env_variable`, `coin_type`, `account`, `index`|
 
 ## Encoding Options
@@ -128,6 +128,7 @@ cargo build
 The gRPC API is defined in [`proto/fkms/v1/signer.proto`](proto/fkms/v1/signer.proto):
 
 - `SignEvm(SignEvmRequest)`: Sign a message with a given address (EVM)
+- `SignIcon(SignIconRequest)`: Sign a message with a given address (ICON)
 - `SignXrpl(SignXrplRequest)`: Sign a message with a given address (XRPL)
 - `GetSignerAddresses(GetSignerAddressesRequest)`: List available signer addresses
 
@@ -162,6 +163,23 @@ message SignXrplRequest {
 ```proto
 message SignXrplResponse {
   bytes tx_blob = 1;
+}
+```
+
+### Example: SignIconRequest
+
+```proto
+message SignIconRequest {
+  IconSignerPayload signer_payload = 1;
+  Tss tss = 2;
+}
+```
+
+### Example: SignIconResponse
+
+```proto
+message SignIconResponse {
+  bytes tx_params = 1;
 }
 ```
 
@@ -215,6 +233,7 @@ message Signers {
 enum ChainType {
   EVM = 0;
   XRPL = 1;
+  ICON = 2;
 }
 ```
 
@@ -227,3 +246,4 @@ enum ChainType {
 
 - **Middleware:** Add authentication or other middleware by enabling the `middleware` feature and configuring as needed.
 - **AWS KMS:** Enable the `aws` feature and configure AWS signers in the config.
+

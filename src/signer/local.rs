@@ -1,7 +1,9 @@
 use crate::config::signer::local::ChainType;
 use crate::signer::signature::Signature;
 use crate::signer::signature::ecdsa::DerSignature;
-use crate::signer::{Signer, public_key_to_evm_address, public_key_to_xrpl_address};
+use crate::signer::{
+    Signer, public_key_to_evm_address, public_key_to_icon_address, public_key_to_xrpl_address,
+};
 use k256::ecdsa::SigningKey as EcdsaSigningKey;
 use k256::ecdsa::signature::hazmat::PrehashSigner;
 
@@ -30,6 +32,12 @@ impl LocalSigner {
                 let signing_key = EcdsaSigningKey::from_slice(private_key)?;
                 let public_key = create_public_key(&signing_key, true);
                 let address = public_key_to_xrpl_address(&public_key)?;
+                (SigningKey::Ecdsa(signing_key), public_key, address)
+            }
+            ChainType::Icon => {
+                let signing_key = EcdsaSigningKey::from_slice(private_key)?;
+                let public_key = create_public_key(&signing_key, false);
+                let address = public_key_to_icon_address(&public_key)?;
                 (SigningKey::Ecdsa(signing_key), public_key, address)
             }
         };
@@ -66,6 +74,7 @@ impl Signer for LocalSigner {
         match self.chain_type {
             ChainType::Evm => self.sign_ecdsa(message).await,
             ChainType::Xrpl => self.sign_der(message).await,
+            ChainType::Icon => self.sign_ecdsa(message).await,
         }
     }
 
@@ -175,6 +184,15 @@ mod test {
             .unwrap();
         let address = public_key_to_xrpl_address(&pk).unwrap();
         let expected = "rpJ8fpF16aB8a4rmhkZNaXCWq3zweEzKrB";
+        assert_eq!(address, expected);
+    }
+
+    #[test]
+    fn test_public_key_to_icon_address() {
+        let pk = hex::decode("0409cb1cab6bd46b7b050bf8427850340bc6906b88957d584432f6fc6510688f4a7c01b45e009bd1d700b4486325c915a6d25ba69722c8ded9da0ab76941870e3d")
+            .unwrap();
+        let address = public_key_to_icon_address(&pk).unwrap();
+        let expected = "hx8521060f28fdedcc4e4544ee499008809d4c0322";
         assert_eq!(address, expected);
     }
 }
