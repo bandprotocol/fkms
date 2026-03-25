@@ -63,6 +63,14 @@ impl LocalSigner {
                         )
                     })?
                     .to_string();
+
+                if !is_valid_flow_address(&address) {
+                    return Err(anyhow::anyhow!(
+                        "Invalid Flow address override: {}. Must be 0x followed by 16 hex characters.",
+                        address
+                    ));
+                }
+
                 let signing_key = P256SigningKey::from_slice(private_key)?;
                 let public_key = create_ecdsa_public_key(&signing_key, false);
                 (SigningKey::EcdsaP256(signing_key), public_key, address)
@@ -102,7 +110,7 @@ impl LocalSigner {
         match &self.signing_key {
             SigningKey::EcdsaP256(signing_key) => {
                 let signature: P256Signature = signing_key.sign_prehash(message)?;
-                Ok(signature.to_bytes().to_vec())
+                Ok(signature.into_vec())
             }
             _ => Err(anyhow::anyhow!("Wrong signing key type for P-256 ECDSA")),
         }
@@ -148,6 +156,13 @@ where
         .to_vec()
 }
 
+fn is_valid_flow_address(s: &str) -> bool {
+    if let Some(hex) = s.strip_prefix("0x") {
+        return hex.len() == 16 && hex.chars().all(|c| c.is_ascii_hexdigit());
+    }
+    false
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -176,7 +191,7 @@ mod test {
     async fn test_sign_der() {
         let pk = hex::decode("45ea1ad910df93d1a021a42f384aad55c7c65d565ad6b2203a4ba50418922a7b")
             .unwrap();
-        let signer = LocalSigner::new(&pk, &ChainType::Evm, None).unwrap();
+        let signer = LocalSigner::new(&pk, &ChainType::Xrpl, None).unwrap();
         let message = &Sha512::digest(b"Hello, world!")[..32];
         let signature = hex::encode(signer.sign_der(message).await.unwrap());
         let expected = "304402203a3fcf5aadf9e26bc931fc54a924013413d80fb538c5048fc4e4c8dd2e6c178502202de7b72145515c0d23ed4f2bce9dd26541c26059557a607ccdcfee47d88cd1eb";

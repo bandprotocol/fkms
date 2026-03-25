@@ -37,10 +37,12 @@ pub fn build_payload_rlp(
     ))
 }
 
-/// Builds the Cadence JSON-encoded arguments list for the transaction.
+/// Computes the SHA3-256 hash of the transaction envelope, used as the signing payload.
 ///
-/// Encodes signals as a Cadence `Dictionary`, followed by `resolve_time`
-/// and `request_id` as `UInt64` values.
+/// The envelope is constructed by RLP-encoding the payload alongside an empty
+/// payload signatures list, then prepending the 32-byte Flow transaction domain tag
+/// (`"FLOW-V0.0-transaction"` null-padded) to bind the hash to the Flow network
+/// and prevent cross-protocol replay attacks.
 pub fn build_transaction_envelope_hash(payload_rlp: &[u8]) -> anyhow::Result<Vec<u8>> {
     let envelope_rlp = encode_envelope_rlp(payload_rlp);
 
