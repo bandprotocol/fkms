@@ -21,17 +21,17 @@ Before building and running `fkms`, ensure the following dependency is installed
 
    By default, the `fkms` binary is compiled with the local feature enabled, supporting local key management. If you wish to enable additional features (such as AWS KMS integration), you can specify them explicitly during installation:
    - Default (local signer only)
-    ```sh
-    cargo install --path .
-    ```
+      ```sh
+      cargo install --path .
+      ```
    - With AWS KMS support (EVM-compatible chains only):
-    ```sh
-    cargo install --path . --features aws
-    ```
+      ```sh
+      cargo install --path . --features aws
+      ```
    - Both Local and AWS KMS support (AWS KMS for EVM-compatible chains; ICON/XRPL via local signers):
-    ```sh
-    cargo install --path . --features local,aws
-    ```
+      ```sh
+      cargo install --path . --features local,aws
+      ```
   This will compile and install the fkms executable 
 
 ## Configuration
