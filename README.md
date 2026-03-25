@@ -13,10 +13,10 @@ Before building and running `fkms`, ensure the following dependency is installed
 ## Installation
 
 1. **Clone the repository:**
-  ```sh
-  git clone https://github.com/bandprotocol/fkms.git
-  cd fkms
-  ```
+    ```sh
+    git clone https://github.com/bandprotocol/fkms.git
+    cd fkms
+    ```
 2. **Build and install the binary:**
 
    By default, the `fkms` binary is compiled with the local feature enabled, supporting local key management. If you wish to enable additional features (such as AWS KMS integration), you can specify them explicitly during installation:
