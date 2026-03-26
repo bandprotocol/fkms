@@ -98,8 +98,7 @@ fn serialize_icon_value(value: &Value) -> anyhow::Result<String> {
         Value::Bool(b) => Ok(b.to_string()),
         Value::Number(n) => Ok(n.to_string()),
         Value::Array(arr) => {
-            let parts: anyhow::Result<Vec<String>> =
-                arr.iter().map(serialize_icon_value).collect();
+            let parts: anyhow::Result<Vec<String>> = arr.iter().map(serialize_icon_value).collect();
             Ok(format!("[{}]", parts?.join(".")))
         }
         Value::Object(obj) => {
@@ -132,8 +131,8 @@ pub fn encode_tx_for_signing(tx: &IconTx) -> anyhow::Result<Vec<u8>> {
     // data field – serialize using canonical format
     let data_value = serde_json::to_value(&tx.data)
         .with_context(|| "Failed to serialize IconData to JSON value")?;
-    let canonical_data = serialize_icon_value(&data_value)
-        .with_context(|| "Failed to canonicalize IconData")?;
+    let canonical_data =
+        serialize_icon_value(&data_value).with_context(|| "Failed to canonicalize IconData")?;
     out.push_str(".data.");
     out.push_str(&canonical_data);
 
