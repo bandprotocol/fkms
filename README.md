@@ -242,6 +242,28 @@ enum ChainType {
 - The server constructs an XRPL transaction from the `XrplSignerPayload`, encodes it using XRPL's `encode_for_signing`, and computes the XRPL-standard SHA512Half digest of those encoded transaction bytes (SHA-512, then taking the first 32 bytes) before signing.
 - Signatures are returned as DER-encoded ECDSA bytes.
 
+### Signal Filtering for Feeder V2
+
+For chains (e.g., XRPL, ICON) that work on Feeder V2, the server applies signal filtering to extract only valid USD price feeds:
+
+**Filter Behavior:**
+- **Format Validation:** Signals must follow the format `PREFIX:BASE-USD` (e.g., `CS:BTC-USD`). The signal is split by `:`, then the quote part is split by `-`, checking that it ends with `USD`.
+- **Price Validation:** Only signals with `price > 0` are included. Zero or negative prices are filtered out.
+- **Result:** Returns tuples of `(base_asset, price)` for each valid signal (e.g., `("BTC", 65000)` for a signal of `CS:BTC-USD` with price 65000).
+
+**Example:**
+```
+Input signals:
+- { signal: "CS:BTC-USD", price: 65000 }
+- { signal: "CS:ETH-USD", price: 3500 }
+- { signal: "CS:XRP-USD", price: 0 }        // Filtered out (price = 0)
+- { signal: "CS:XXX-BTC", price: 100 }      // Filtered out (invalid format)
+
+Output signals:
+- ("BTC", 65000)
+- ("ETH", 3500)
+```
+
 ## Extending
 
 - **Middleware:** Add authentication or other middleware by enabling the `middleware` feature and configuring as needed.

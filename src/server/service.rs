@@ -2,7 +2,7 @@ use crate::codec::evm::decode_tx;
 use crate::codec::icon::{
     create_signing_payload as create_icon_signing_payload, encode_tx_for_signing, sign_tx,
 };
-use crate::codec::tss::decode_tss_message;
+use crate::codec::tss::{decode_tss_message, TunnelSignalPrice};
 use crate::codec::xrpl::create_signing_payload;
 use crate::codec::xrpl::{encode_for_signing, encode_with_signature};
 use crate::config::signer::local::ChainType;
@@ -18,6 +18,28 @@ use sha3::{Digest, Sha3_256};
 use std::collections::HashMap;
 use tonic::{Request, Response, Status};
 use tracing::{error, info, instrument, warn};
+
+/// Filters a signal to extract base asset from USD pairs with price > 0.
+/// Expected format: "PREFIX:BASE-USD"
+/// Returns Some((base_asset, price)) for valid USD pairs with price > 0, None otherwise.
+fn filter_usd_signal(sp: &TunnelSignalPrice) -> Option<(String, u64)> {
+    // Only process signals with price > 0
+    if sp.price == 0 {
+        return None;
+    }
+
+    let parts: Vec<&str> = sp.signal.split(':').collect();
+    if parts.len() != 2 {
+        return None;
+    }
+
+    let base_quote: Vec<&str> = parts[1].split('-').collect();
+    if base_quote.len() == 2 && base_quote[1] == "USD" && sp.price > 0 {
+        Some((base_quote[0].to_string(), sp.price))
+    } else {
+        None
+    }
+}
 
 #[tonic::async_trait]
 impl FkmsService for Server {
@@ -111,7 +133,7 @@ impl FkmsService for Server {
                 let signals: Vec<(String, u64)> = tunnel_packet
                     .signals
                     .iter()
-                    .map(|sp| (sp.signal.clone(), sp.price))
+                    .filter_map(|sp| filter_usd_signal(sp))
                     .collect();
                 let mut signing_payload = create_signing_payload(
                     &signals,
@@ -203,16 +225,7 @@ impl FkmsService for Server {
                 let signals: Vec<(String, u64)> = tunnel_packet
                     .signals
                     .iter()
-                    .filter_map(|sp| {
-                        let parts: Vec<&str> = sp.signal.split(':').collect();
-                        if parts.len() == 2 {
-                            let base_quote: Vec<&str> = parts[1].split('-').collect();
-                            if base_quote.len() == 2 && base_quote[1] == "USD" {
-                                return Some((base_quote[0].to_string(), sp.price));
-                            }
-                        }
-                        None
-                    })
+                    .filter_map(|sp| filter_usd_signal(sp))
                     .collect();
 
                 let resolved_time = u64::try_from(tunnel_packet.timestamp)
