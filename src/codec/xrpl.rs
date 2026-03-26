@@ -26,7 +26,7 @@ pub fn create_signing_payload(
             "LastUpdateTime": last_update_time,
             "PriceDataSeries": signals
                 .iter()
-                .map(|(signal, price)| create_price_data(signal, price))
+                .map(|(base, price)| create_price_data(base.clone(), price))
                 .collect::<anyhow::Result<Vec<Value>>>()?,
             "Sequence": sequence,
             "Fee": fee,
@@ -53,19 +53,12 @@ pub fn encode_with_signature(tx: &mut Value, signature: String) -> anyhow::Resul
     Ok(hex::decode(encoded_tx)?)
 }
 
-fn create_price_data(signal_id: &str, price: &u64) -> anyhow::Result<Value> {
-    let base = signal_id.to_string();
+fn create_price_data(base: String, price: &u64) -> anyhow::Result<Value> {
     let quote = "USD".to_string();
     let base = if base.len() == 3 {
         base
     } else {
         str_to_hex(&base, Some(40))?
-    };
-
-    let quote = if quote.len() == 3 {
-        quote
-    } else {
-        str_to_hex(&quote, Some(40))?
     };
 
     Ok(json!({
