@@ -63,16 +63,19 @@ pub fn build_unsigned_tx(
     let padding = (4 - (func_name.len() % 4)) % 4;
     tx.extend_from_slice(&vec![0u8; padding]);
 
-    // args: array of 3 SCVal arguments
-    tx.extend_from_slice(&3u32.to_be_bytes());
+    // args: array of 4 SCVal arguments
+    tx.extend_from_slice(&4u32.to_be_bytes());
 
-    // arg[0]: signals as SCVal Map<Symbol, U64>
-    encode_signals_map(&mut tx, signals);
+    // arg[0]: from as SCVal Address
+    encode_sc_val_address(&mut tx, &source_key);
 
-    // arg[1]: resolve_time as SCVal U64
+    // arg[1]: signals as SCVal Vec<(Symbol, u64)>
+    encode_signals_vec(&mut tx, signals);
+
+    // arg[2]: resolve_time as SCVal U64
     encode_sc_val_u64(&mut tx, resolve_time);
 
-    // arg[2]: request_id as SCVal U64
+    // arg[3]: request_id as SCVal U64
     encode_sc_val_u64(&mut tx, request_id);
 
     // auth: array of 0 SorobanAuthorizationEntry
@@ -205,17 +208,36 @@ fn decode_stellar_contract_address(address: &str) -> anyhow::Result<[u8; 32]> {
     Ok(hash)
 }
 
-/// Encodes an SCVal representing a Map<Symbol, U64> of signals.
-fn encode_signals_map(buf: &mut Vec<u8>, signals: &[(String, u64)]) {
-    // SCV_MAP = 14
-    buf.extend_from_slice(&14u32.to_be_bytes());
+/// Encodes an SCVal representing an Address.
+fn encode_sc_val_address(buf: &mut Vec<u8>, key: &[u8; 32]) {
+    // SCV_ADDRESS = 18
+    buf.extend_from_slice(&18u32.to_be_bytes());
+    // SCAddressType::Account = 0
+    buf.extend_from_slice(&0u32.to_be_bytes());
+    // PublicKeyTypeEd25519 = 0
+    buf.extend_from_slice(&0u32.to_be_bytes());
+    // 32-byte key
+    buf.extend_from_slice(key);
+}
+
+/// Encodes an SCVal representing a Vec<(Symbol, U64)> of signals.
+fn encode_signals_vec(buf: &mut Vec<u8>, signals: &[(String, u64)]) {
+    // SCV_VEC = 16
+    buf.extend_from_slice(&16u32.to_be_bytes());
     // Optional present (1 = Some)
     buf.extend_from_slice(&1u32.to_be_bytes());
-    // Map length
+    // Vector length
     buf.extend_from_slice(&(signals.len() as u32).to_be_bytes());
 
     for (symbol, price) in signals {
-        // Key: SCV_SYMBOL = 15
+        // inner Tuple is SCV_VEC = 16
+        buf.extend_from_slice(&16u32.to_be_bytes());
+        // Optional present (1 = Some)
+        buf.extend_from_slice(&1u32.to_be_bytes());
+        // Tuple length = 2
+        buf.extend_from_slice(&2u32.to_be_bytes());
+
+        // Element 0: SCV_SYMBOL = 15
         buf.extend_from_slice(&15u32.to_be_bytes());
         let sym_bytes = symbol.as_bytes();
         buf.extend_from_slice(&(sym_bytes.len() as u32).to_be_bytes());
@@ -224,7 +246,7 @@ fn encode_signals_map(buf: &mut Vec<u8>, signals: &[(String, u64)]) {
         let padding = (4 - (sym_bytes.len() % 4)) % 4;
         buf.extend_from_slice(&vec![0u8; padding]);
 
-        // Value: SCV_U64 = 5
+        // Element 1: SCV_U64 = 5
         buf.extend_from_slice(&5u32.to_be_bytes());
         buf.extend_from_slice(&price.to_be_bytes());
     }
