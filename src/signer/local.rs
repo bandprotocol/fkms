@@ -51,7 +51,7 @@ impl LocalSigner {
             }
             ChainType::Icon => {
                 let signing_key = EcdsaSigningKey::from_slice(private_key)?;
-                let public_key = create_ecdsa_public_key(&signing_key, true);
+                let public_key = create_ecdsa_public_key(&signing_key, false);
                 let address = public_key_to_icon_address(&public_key)?;
                 (SigningKey::EcdsaK256(signing_key), public_key, address)
             }

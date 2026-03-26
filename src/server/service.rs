@@ -300,8 +300,8 @@ impl FkmsService for Server {
                     .map(|sp| (sp.signal.clone(), sp.price))
                     .collect();
 
-                // resolve_time = TSS timestamp, request_id = TSS sequence
-                let resolve_time = tunnel_packet.timestamp as u64;
+                let resolve_time = u64::try_from(tunnel_packet.timestamp)
+                    .map_err(|_| Status::invalid_argument("Timestamp must be non-negative"))?;
                 let request_id = tunnel_packet.sequence;
 
                 let payload_rlp = flow::build_payload_rlp(
