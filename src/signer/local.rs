@@ -2,7 +2,8 @@ use crate::config::signer::local::ChainType;
 use crate::signer::signature::Signature;
 use crate::signer::signature::ecdsa::{DerSignature, P256Signature};
 use crate::signer::{
-    Signer, public_key_to_evm_address, public_key_to_icon_address, public_key_to_xrpl_address,
+    Signer, public_key_to_evm_address, public_key_to_icon_address, public_key_to_soroban_address,
+    public_key_to_xrpl_address,
 };
 use ecdsa::SignatureSize;
 use ecdsa::hazmat::SignPrimitive;
@@ -17,6 +18,7 @@ use k256::ecdsa::SigningKey as K256SigningKey;
 use k256::ecdsa::signature::hazmat::PrehashSigner;
 use k256::elliptic_curve::CurveArithmetic;
 use p256::ecdsa::SigningKey as P256SigningKey;
+use ed25519_dalek::SigningKey as Ed25519SigningKey;
 
 pub struct LocalSigner {
     signing_key: SigningKey,
@@ -28,6 +30,7 @@ pub struct LocalSigner {
 pub enum SigningKey {
     EcdsaK256(K256SigningKey),
     EcdsaP256(P256SigningKey),
+    Ed25519(Ed25519SigningKey),
 }
 
 impl LocalSigner {
@@ -75,6 +78,17 @@ impl LocalSigner {
                 let public_key = create_ecdsa_public_key(&signing_key, false);
                 (SigningKey::EcdsaP256(signing_key), public_key, address)
             }
+            ChainType::Soroban => {
+                let key_bytes: [u8; 32] = private_key.try_into().map_err(|_| {
+                    anyhow::anyhow!("Ed25519 private key must be exactly 32 bytes")
+                })?;
+                let signing_key = Ed25519SigningKey::from_bytes(&key_bytes);
+                let public_key = signing_key.verifying_key().to_bytes().to_vec();
+                let address = address_override
+                    .map(|a| a.to_string())
+                    .map_or_else(|| public_key_to_soroban_address(&public_key), Ok)?;
+                (SigningKey::Ed25519(signing_key), public_key, address)
+            }
         };
 
         Ok(LocalSigner {
@@ -115,6 +129,17 @@ impl LocalSigner {
             _ => Err(anyhow::anyhow!("Wrong signing key type for P-256 ECDSA")),
         }
     }
+
+    async fn sign_ed25519(&self, message: &[u8]) -> anyhow::Result<Vec<u8>> {
+        match &self.signing_key {
+            SigningKey::Ed25519(signing_key) => {
+                use ed25519_dalek::Signer as _;
+                let signature = signing_key.sign(message);
+                Ok(signature.to_bytes().to_vec())
+            }
+            _ => Err(anyhow::anyhow!("Wrong signing key type for Ed25519")),
+        }
+    }
 }
 
 #[async_trait::async_trait]
@@ -125,6 +150,7 @@ impl Signer for LocalSigner {
             ChainType::Xrpl => self.sign_der(message).await,
             ChainType::Icon => self.sign_ecdsa(message).await,
             ChainType::Flow => self.sign_p256(message).await,
+            ChainType::Soroban => self.sign_ed25519(message).await,
         }
     }
 

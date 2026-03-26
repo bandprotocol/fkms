@@ -2424,6 +2424,7 @@ dependencies = [
  "clap",
  "dirs",
  "ecdsa",
+ "ed25519-dalek",
  "elliptic-curve",
  "hex",
  "hex-literal",

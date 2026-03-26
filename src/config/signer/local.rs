@@ -35,4 +35,5 @@ pub enum ChainType {
     Xrpl,
     Icon,
     Flow,
+    Soroban,
 }
