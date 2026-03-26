@@ -421,10 +421,8 @@ impl FkmsService for Server {
                 })?;
 
                 // Compute Stellar transaction hash
-                let tx_hash = soroban::compute_tx_hash(
-                    &signer_payload.network_passphrase,
-                    &unsigned_tx,
-                );
+                let tx_hash =
+                    soroban::compute_tx_hash(&signer_payload.network_passphrase, &unsigned_tx);
 
                 match signer.sign(&tx_hash).await {
                     Ok(signature) => {
@@ -435,9 +433,7 @@ impl FkmsService for Server {
                         )
                         .map_err(|e| {
                             error!("failed to encode signed soroban envelope: {:?}", e);
-                            Status::internal(format!(
-                                "Failed to encode signed envelope: {e}"
-                            ))
+                            Status::internal(format!("Failed to encode signed envelope: {e}"))
                         })?;
 
                         info!("successfully signed soroban transaction");

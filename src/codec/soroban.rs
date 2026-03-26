@@ -428,10 +428,26 @@ mod tests {
         let contract_address = build_test_stellar_address(2 << 3, &[0xABu8; 32]);
         let signals = vec![("CS:BTC-USD".to_string(), 100u64)];
 
-        let tx1 = build_unsigned_tx(&source_address, &contract_address, 100, 1, &signals, 1000, 1)
-            .unwrap();
-        let tx2 = build_unsigned_tx(&source_address, &contract_address, 100, 1, &signals, 1000, 1)
-            .unwrap();
+        let tx1 = build_unsigned_tx(
+            &source_address,
+            &contract_address,
+            100,
+            1,
+            &signals,
+            1000,
+            1,
+        )
+        .unwrap();
+        let tx2 = build_unsigned_tx(
+            &source_address,
+            &contract_address,
+            100,
+            1,
+            &signals,
+            1000,
+            1,
+        )
+        .unwrap();
 
         assert_eq!(tx1, tx2);
     }

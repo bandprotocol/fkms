@@ -8,6 +8,7 @@ use crate::signer::{
 use ecdsa::SignatureSize;
 use ecdsa::hazmat::SignPrimitive;
 use ecdsa::{PrimeCurve, SigningKey as EcdsaSigningKey};
+use ed25519_dalek::SigningKey as Ed25519SigningKey;
 use elliptic_curve::generic_array::ArrayLength;
 use elliptic_curve::ops::Invert;
 use elliptic_curve::sec1::ToEncodedPoint;
@@ -18,7 +19,6 @@ use k256::ecdsa::SigningKey as K256SigningKey;
 use k256::ecdsa::signature::hazmat::PrehashSigner;
 use k256::elliptic_curve::CurveArithmetic;
 use p256::ecdsa::SigningKey as P256SigningKey;
-use ed25519_dalek::SigningKey as Ed25519SigningKey;
 
 pub struct LocalSigner {
     signing_key: SigningKey,
@@ -79,9 +79,9 @@ impl LocalSigner {
                 (SigningKey::EcdsaP256(signing_key), public_key, address)
             }
             ChainType::Soroban => {
-                let key_bytes: [u8; 32] = private_key.try_into().map_err(|_| {
-                    anyhow::anyhow!("Ed25519 private key must be exactly 32 bytes")
-                })?;
+                let key_bytes: [u8; 32] = private_key
+                    .try_into()
+                    .map_err(|_| anyhow::anyhow!("Ed25519 private key must be exactly 32 bytes"))?;
                 let signing_key = Ed25519SigningKey::from_bytes(&key_bytes);
                 let public_key = signing_key.verifying_key().to_bytes().to_vec();
                 let address = address_override
