@@ -13,6 +13,7 @@ use crate::proto::fkms::v1::{
     SignIconRequest, SignIconResponse, SignXrplRequest, SignXrplResponse, Signers,
 };
 use crate::server::Server;
+use crate::server::utils::filter_usd_signal;
 use k256::sha2::Sha512;
 use sha3::{Digest, Sha3_256};
 use std::collections::HashMap;
@@ -111,7 +112,7 @@ impl FkmsService for Server {
                 let signals: Vec<(String, u64)> = tunnel_packet
                     .signals
                     .iter()
-                    .map(|sp| (sp.signal.clone(), sp.price))
+                    .filter_map(filter_usd_signal)
                     .collect();
                 let mut signing_payload = create_signing_payload(
                     &signals,
@@ -203,7 +204,7 @@ impl FkmsService for Server {
                 let signals: Vec<(String, u64)> = tunnel_packet
                     .signals
                     .iter()
-                    .map(|sp| (sp.signal.clone(), sp.price))
+                    .filter_map(filter_usd_signal)
                     .collect();
 
                 let resolved_time = u64::try_from(tunnel_packet.timestamp)

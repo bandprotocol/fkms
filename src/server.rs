@@ -8,6 +8,7 @@ pub mod builder;
 pub mod middleware;
 pub mod pre_sign;
 pub mod service;
+pub mod utils;
 
 pub struct Server {
     signers: HashMap<(ChainType, String), Box<dyn Signer>>,

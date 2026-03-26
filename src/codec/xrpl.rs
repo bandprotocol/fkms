@@ -26,7 +26,7 @@ pub fn create_signing_payload(
             "LastUpdateTime": last_update_time,
             "PriceDataSeries": signals
                 .iter()
-                .map(|(signal, price)| create_price_data(signal, price))
+                .map(|(base, price)| create_price_data(base.clone(), price))
                 .collect::<anyhow::Result<Vec<Value>>>()?,
             "Sequence": sequence,
             "Fee": fee,
@@ -53,19 +53,12 @@ pub fn encode_with_signature(tx: &mut Value, signature: String) -> anyhow::Resul
     Ok(hex::decode(encoded_tx)?)
 }
 
-fn create_price_data(signal_id: &str, price: &u64) -> anyhow::Result<Value> {
-    let (base, quote) = extract_base_quote(signal_id)?;
-
+fn create_price_data(base: String, price: &u64) -> anyhow::Result<Value> {
+    let quote = "USD".to_string();
     let base = if base.len() == 3 {
         base
     } else {
         str_to_hex(&base, Some(40))?
-    };
-
-    let quote = if quote.len() == 3 {
-        quote
-    } else {
-        str_to_hex(&quote, Some(40))?
     };
 
     Ok(json!({
@@ -76,26 +69,6 @@ fn create_price_data(signal_id: &str, price: &u64) -> anyhow::Result<Value> {
             "Scale": 9,
         }
     }))
-}
-
-fn extract_base_quote(signal: &str) -> anyhow::Result<(String, String)> {
-    let parts = signal.split(':').collect::<Vec<&str>>();
-    if parts.len() != 2 {
-        return Err(anyhow::anyhow!(
-            "Invalid signal format, expected: {}, actual: {}",
-            "XX:BASE-QUOTE",
-            signal
-        ));
-    }
-    let base_quote = parts[1].split('-').collect::<Vec<&str>>();
-    if base_quote.len() != 2 {
-        return Err(anyhow!(
-            "Invalid base-quote format, expected: {}, actual: {}",
-            "BASE-QUOTE",
-            parts[1]
-        ));
-    }
-    Ok((base_quote[0].to_string(), base_quote[1].to_string()))
 }
 
 // only supports ASCII characters
@@ -132,8 +105,8 @@ mod tests {
     #[test]
     fn test_create_signing_payload_success() {
         let signals = vec![
-            ("CS:BTC-USD".to_string(), 67758920310332u64),
-            ("CS:XRP-USD".to_string(), 1410834569u64),
+            ("BTC".to_string(), 67758920310332u64),
+            ("XRP".to_string(), 1410834569u64),
         ];
 
         // Ripple Epoch for 2026-02-26 is approx 825330000
@@ -188,19 +161,6 @@ mod tests {
     }
 
     #[test]
-    fn test_extract_base_quote_complex() {
-        // Test standard format
-        let (base, quote) = extract_base_quote("CS:BTC-USD").unwrap();
-        assert_eq!(base, "BTC");
-        assert_eq!(quote, "USD");
-
-        // Test non-standard asset format
-        let (base, quote) = extract_base_quote("CS:WBTC-USD").unwrap();
-        assert_eq!(base, "WBTC");
-        assert_eq!(quote, "USD");
-    }
-
-    #[test]
     fn test_str_to_hex_for_assets() {
         // WBTC is 4 chars, so your logic calls str_to_hex(..., 40)
         let hex_val = str_to_hex("WBTC", Some(40)).unwrap();
@@ -216,12 +176,5 @@ mod tests {
         // Should convert without adding any padding or validation
         let result = str_to_hex("ABC", None).unwrap();
         assert_eq!(result, "414243");
-    }
-
-    #[test]
-    fn test_invalid_signal_formats() {
-        assert!(extract_base_quote("INVALID").is_err());
-        assert!(extract_base_quote("CS:BTCUSD").is_err()); // Missing dash
-        assert!(extract_base_quote("BTC-USD").is_err()); // Missing prefix
     }
 }
