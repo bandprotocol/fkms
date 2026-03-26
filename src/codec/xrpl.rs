@@ -112,8 +112,8 @@ mod tests {
     #[test]
     fn test_create_signing_payload_success() {
         let signals = vec![
-            ("CS:BTC-USD".to_string(), 67758920310332u64),
-            ("CS:XRP-USD".to_string(), 1410834569u64),
+            ("BTC".to_string(), 67758920310332u64),
+            ("XRP".to_string(), 1410834569u64),
         ];
 
         // Ripple Epoch for 2026-02-26 is approx 825330000
