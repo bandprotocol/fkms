@@ -203,7 +203,16 @@ impl FkmsService for Server {
                 let signals: Vec<(String, u64)> = tunnel_packet
                     .signals
                     .iter()
-                    .map(|sp| (sp.signal.clone(), sp.price))
+                    .filter_map(|sp| {
+                        let parts: Vec<&str> = sp.signal.split(':').collect();
+                        if parts.len() == 2 {
+                            let base_quote: Vec<&str> = parts[1].split('-').collect();
+                            if base_quote.len() == 2 && base_quote[1] == "USD" {
+                                return Some((base_quote[0].to_string(), sp.price));
+                            }
+                        }
+                        None
+                    })
                     .collect();
 
                 let resolved_time = u64::try_from(tunnel_packet.timestamp)
