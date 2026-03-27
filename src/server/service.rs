@@ -320,11 +320,7 @@ impl FkmsService for Server {
                     Status::internal(format!("Failed to build flow payload RLP: {e}"))
                 })?;
 
-                let envelope_hash =
-                    flow::build_transaction_envelope_hash(&payload_rlp).map_err(|e| {
-                        error!("failed to build flow envelope hash: {:?}", e);
-                        Status::internal(format!("Failed to build transaction envelope hash: {e}"))
-                    })?;
+                let envelope_hash = flow::build_transaction_envelope_hash(&payload_rlp);
 
                 match signer.sign(&envelope_hash).await {
                     Ok(signature) => {

@@ -43,12 +43,12 @@ pub fn build_payload_rlp(
 /// payload signatures list, then prepending the 32-byte Flow transaction domain tag
 /// (`"FLOW-V0.0-transaction"` null-padded) to bind the hash to the Flow network
 /// and prevent cross-protocol replay attacks.
-pub fn build_transaction_envelope_hash(payload_rlp: &[u8]) -> anyhow::Result<Vec<u8>> {
+pub fn build_transaction_envelope_hash(payload_rlp: &[u8]) -> Vec<u8> {
     let envelope_rlp = encode_envelope_rlp(payload_rlp);
 
     let tx = [FLOW_TRANSACTION_DOMAIN_TAG, &envelope_rlp].concat();
 
-    Ok(Sha3_256::digest(&tx).to_vec())
+    Sha3_256::digest(&tx).to_vec()
 }
 
 /// Encodes the fully signed transaction into RLP format for submission to the Flow network.
@@ -264,7 +264,7 @@ mod tests {
         )
         .unwrap();
 
-        let hash = build_transaction_envelope_hash(&payload_rlp).unwrap();
+        let hash = build_transaction_envelope_hash(&payload_rlp);
 
         assert_eq!(hash.len(), 32);
     }
