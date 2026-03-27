@@ -297,14 +297,14 @@ impl FkmsService for Server {
                 let signals: Vec<(String, u64)> = tunnel_packet
                     .signals
                     .iter()
-                    .map(|sp| (sp.signal.clone(), sp.price))
+                    .filter_map(filter_usd_signal)
                     .collect();
 
                 let resolve_time = u64::try_from(tunnel_packet.timestamp)
                     .map_err(|_| Status::invalid_argument("Timestamp must be non-negative"))?;
                 let request_id = tunnel_packet.sequence;
 
-                let payload_rlp = flow::build_payload_rlp(
+                let payload_rlp: Vec<u8> = flow::build_payload_rlp(
                     &signals,
                     &signer_payload.address,
                     signer_payload.compute_limit,
