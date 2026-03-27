@@ -50,7 +50,7 @@ impl LocalSigner {
                 (SigningKey::EcdsaK256(signing_key), public_key, address)
             }
             ChainType::Icon => {
-                let signing_key = EcdsaSigningKey::from_slice(private_key)?;
+                let signing_key = K256SigningKey::from_slice(private_key)?;
                 let public_key = create_ecdsa_public_key(&signing_key, false);
                 let address = public_key_to_icon_address(&public_key)?;
                 (SigningKey::EcdsaK256(signing_key), public_key, address)
@@ -157,10 +157,8 @@ where
 }
 
 fn is_valid_flow_address(s: &str) -> bool {
-    if let Some(hex) = s.strip_prefix("0x") {
-        return hex.len() == 16 && hex.chars().all(|c| c.is_ascii_hexdigit());
-    }
-    false
+    let hex = s.strip_prefix("0x").unwrap_or(s);
+    hex.len() == 16 && hex.chars().all(|c| c.is_ascii_hexdigit())
 }
 
 #[cfg(test)]

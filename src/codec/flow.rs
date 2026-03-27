@@ -60,6 +60,13 @@ pub fn encode_signed_transaction(
     key_index: u32,
     signature: &[u8],
 ) -> anyhow::Result<Vec<u8>> {
+    // Flow expects raw P-256 signatures as 64 bytes (r || s).
+    if signature.len() != 64 {
+        return Err(anyhow!(
+            "invalid Flow signature length: expected 64 bytes (r||s), got {} bytes",
+            signature.len()
+        ));
+    }
     let mut stream = RlpStream::new_list(3);
     stream.append_raw(payload_rlp, 1);
     stream.begin_list(0);
