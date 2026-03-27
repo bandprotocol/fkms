@@ -394,7 +394,7 @@ impl FkmsService for Server {
                 let signals: Vec<(String, u64)> = tunnel_packet
                     .signals
                     .iter()
-                    .map(|sp| (sp.signal.clone(), sp.price))
+                    .filter_map(filter_usd_signal)
                     .collect();
 
                 let resolve_time = u64::try_from(tunnel_packet.timestamp)
