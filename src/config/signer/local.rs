@@ -7,6 +7,8 @@ pub enum LocalSignerConfig {
         env_variable: String,
         encoding: Encoding,
         chain_type: ChainType,
+        #[serde(default)]
+        address: Option<String>,
     },
     Mnemonic {
         env_variable: String,
@@ -14,6 +16,8 @@ pub enum LocalSignerConfig {
         account: u32,
         index: u32,
         chain_type: ChainType,
+        #[serde(default)]
+        address: Option<String>,
     },
 }
 
@@ -30,4 +34,5 @@ pub enum ChainType {
     Evm,
     Xrpl,
     Icon,
+    Flow,
 }
