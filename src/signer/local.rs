@@ -62,14 +62,14 @@ impl LocalSigner {
                 let address = address
                     .ok_or_else(|| {
                         anyhow::anyhow!(
-                            "Flow chain type requires address_override in config (Flow addresses are network-assigned)"
+                            "Flow chain type requires address in config (Flow addresses are network-assigned)"
                         )
                     })?
                     .to_string();
 
                 if !is_valid_flow_address(&address) {
                     return Err(anyhow::anyhow!(
-                        "Invalid Flow address override: {}. Must be 0x followed by 16 hex characters.",
+                        "Invalid Flow address: {}. Must be 0x followed by 16 hex characters.",
                         address
                     ));
                 }
@@ -84,7 +84,7 @@ impl LocalSigner {
                     .map_err(|_| anyhow::anyhow!("Ed25519 private key must be exactly 32 bytes"))?;
                 let signing_key = Ed25519SigningKey::from_bytes(&key_bytes);
                 let public_key = signing_key.verifying_key().to_bytes().to_vec();
-                let address = address_override
+                let address = address
                     .map(|a| a.to_string())
                     .map_or_else(|| public_key_to_soroban_address(&public_key), Ok)?;
                 (SigningKey::Ed25519(signing_key), public_key, address)
