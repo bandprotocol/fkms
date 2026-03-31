@@ -34,7 +34,7 @@ impl LocalSigner {
     pub fn new(
         private_key: &[u8],
         chain_type: &ChainType,
-        address_override: Option<&str>,
+        address: Option<&str>,
     ) -> anyhow::Result<Self> {
         let (signing_key, public_key, address) = match chain_type {
             ChainType::Evm => {
@@ -56,7 +56,7 @@ impl LocalSigner {
                 (SigningKey::EcdsaK256(signing_key), public_key, address)
             }
             ChainType::Flow => {
-                let address = address_override
+                let address = address
                     .ok_or_else(|| {
                         anyhow::anyhow!(
                             "Flow chain type requires address_override in config (Flow addresses are network-assigned)"

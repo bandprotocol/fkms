@@ -25,7 +25,7 @@ pub fn get_local_signers_from_config(
                 env_variable,
                 encoding,
                 chain_type,
-                address_override,
+                address,
             } => {
                 let pk = env::var(env_variable)?;
                 let pkb = match encoding {
@@ -37,7 +37,7 @@ pub fn get_local_signers_from_config(
                 };
                 (
                     chain_type,
-                    LocalSigner::new(&pkb, chain_type, address_override.as_deref())?,
+                    LocalSigner::new(&pkb, chain_type, address.as_deref())?,
                 )
             }
             LocalSignerConfig::Mnemonic {
@@ -46,13 +46,13 @@ pub fn get_local_signers_from_config(
                 account,
                 index,
                 chain_type,
-                address_override,
+                address,
             } => {
                 let mnemonic = env::var(env_variable)?;
                 let pkb = derive_credential_from_mnemonic(mnemonic, *coin_type, *account, *index)?;
                 (
                     chain_type,
-                    LocalSigner::new(&pkb, chain_type, address_override.as_deref())?,
+                    LocalSigner::new(&pkb, chain_type, address.as_deref())?,
                 )
             }
         };

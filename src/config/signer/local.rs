@@ -8,7 +8,7 @@ pub enum LocalSignerConfig {
         encoding: Encoding,
         chain_type: ChainType,
         #[serde(default)]
-        address_override: Option<String>,
+        address: Option<String>,
     },
     Mnemonic {
         env_variable: String,
@@ -17,7 +17,7 @@ pub enum LocalSignerConfig {
         index: u32,
         chain_type: ChainType,
         #[serde(default)]
-        address_override: Option<String>,
+        address: Option<String>,
     },
 }
 
