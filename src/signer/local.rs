@@ -66,7 +66,7 @@ impl LocalSigner {
 
                 if !is_valid_flow_address(&address) {
                     return Err(anyhow::anyhow!(
-                        "Invalid Flow address override: {}. Must be 0x followed by 16 hex characters.",
+                        "Invalid Flow address: {}. Must be 0x followed by 16 hex characters.",
                         address
                     ));
                 }
