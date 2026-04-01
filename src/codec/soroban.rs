@@ -1,5 +1,3 @@
-use std::env;
-
 use anyhow::anyhow;
 use base64::{Engine as _, engine::general_purpose};
 use k256::sha2::{Digest, Sha256};
@@ -104,8 +102,7 @@ pub fn build_base_tx(
     let tx = Transaction {
         source_account: MuxedAccount::Ed25519(Uint256(source_key)),
         fee,
-        // Stellar requires seq_num == account_sequence + 1
-        seq_num: SequenceNumber(sequence as i64 + 1),
+        seq_num: SequenceNumber(sequence as i64),
         cond: timeout_precondition(),
         memo: Memo::None,
         operations: vec![op]
@@ -396,7 +393,7 @@ mod tests {
 
         assert_eq!(tx.fee, 100);
         // sequence is stored as current+1
-        assert_eq!(tx.seq_num, SequenceNumber(43));
+        assert_eq!(tx.seq_num, SequenceNumber(42));
         assert!(matches!(tx.cond, Preconditions::Time(_)));
         assert!(matches!(tx.ext, TransactionExt::V0));
     }
