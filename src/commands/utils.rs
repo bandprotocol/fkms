@@ -54,7 +54,9 @@ pub fn get_local_signers_from_config(
             } => {
                 let mnemonic = env::var(env_variable)?;
                 let scheme = derivation_scheme.clone().unwrap_or_default();
-                let pkb = derive_credential_from_mnemonic(mnemonic, *coin_type, *account, *index, scheme)?;
+                let pkb = derive_credential_from_mnemonic(
+                    mnemonic, *coin_type, *account, *index, scheme,
+                )?;
                 (
                     chain_type,
                     LocalSigner::new(&pkb, chain_type, address.as_deref())?,

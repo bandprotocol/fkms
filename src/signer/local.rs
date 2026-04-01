@@ -2,12 +2,12 @@ use crate::config::signer::local::ChainType;
 use crate::signer::signature::Signature;
 use crate::signer::signature::ecdsa::{DerSignature, P256Signature};
 use crate::signer::{
-    Signer, public_key_to_evm_address, public_key_to_icon_address, public_key_to_soroban_address,
-    public_key_to_xrpl_address,
+    Signer, public_key_to_evm_address, public_key_to_icon_address, public_key_to_xrpl_address,
 };
 use ecdsa::SignatureSize;
 use ecdsa::hazmat::SignPrimitive;
 use ecdsa::{PrimeCurve, SigningKey as EcdsaSigningKey};
+use ed25519_dalek::Signer as Ed25519Signer;
 use ed25519_dalek::SigningKey as Ed25519SigningKey;
 use elliptic_curve::generic_array::ArrayLength;
 use elliptic_curve::ops::Invert;
@@ -20,7 +20,6 @@ use k256::ecdsa::signature::hazmat::PrehashSigner;
 use k256::elliptic_curve::CurveArithmetic;
 use p256::ecdsa::SigningKey as P256SigningKey;
 use stellar_strkey::Strkey;
-use stellar_strkey::ed25519::PublicKey;
 
 pub struct LocalSigner {
     signing_key: SigningKey,
@@ -86,8 +85,16 @@ impl LocalSigner {
                     .map_err(|_| anyhow::anyhow!("Ed25519 private key must be exactly 32 bytes"))?;
                 let signing_key = Ed25519SigningKey::from_bytes(&key_bytes);
                 let public_key = signing_key.verifying_key().to_bytes().to_vec();
-                let pubkey = Strkey::PublicKeyEd25519(stellar_strkey::ed25519::PublicKey(signing_key.verifying_key().to_bytes())).to_string().to_string();
-                (SigningKey::Ed25519(signing_key), public_key, pubkey)
+                let public_key_address = Strkey::PublicKeyEd25519(
+                    stellar_strkey::ed25519::PublicKey(signing_key.verifying_key().to_bytes()),
+                )
+                .to_string()
+                .to_string();
+                (
+                    SigningKey::Ed25519(signing_key),
+                    public_key,
+                    public_key_address,
+                )
             }
         };
 
@@ -133,9 +140,8 @@ impl LocalSigner {
     async fn sign_ed25519(&self, message: &[u8]) -> anyhow::Result<Vec<u8>> {
         match &self.signing_key {
             SigningKey::Ed25519(signing_key) => {
-                use ed25519_dalek::Signer as _;
                 let signature = signing_key.sign(message);
-                Ok(signature.to_bytes().to_vec())
+                Ok(signature.into_vec())
             }
             _ => Err(anyhow::anyhow!("Wrong signing key type for Ed25519")),
         }

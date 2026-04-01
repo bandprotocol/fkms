@@ -1,3 +1,5 @@
+use std::env;
+
 use anyhow::anyhow;
 use base64::{Engine as _, engine::general_purpose};
 use k256::sha2::{Digest, Sha256};
@@ -44,10 +46,7 @@ fn build_signal_vals(signals: &[(String, u64)]) -> anyhow::Result<Vec<ScVal>> {
         .collect()
 }
 
-fn build_invoke_op(
-    contract_hash: [u8; 32],
-    args: VecM<ScVal>,
-) -> anyhow::Result<Operation> {
+fn build_invoke_op(contract_hash: [u8; 32], args: VecM<ScVal>) -> anyhow::Result<Operation> {
     Ok(Operation {
         source_account: None,
         body: OperationBody::InvokeHostFunction(InvokeHostFunctionOp {
@@ -80,7 +79,7 @@ pub fn build_base_tx(
     signals: &[(String, u64)],
     resolve_time: u64,
     request_id: u64,
-) -> anyhow::Result<Vec<u8>> {
+) -> anyhow::Result<Transaction> {
     let source_key = decode_stellar_address(source_account)?;
     let contract_hash = decode_stellar_contract_address(contract_address)?;
 
@@ -98,7 +97,7 @@ pub fn build_base_tx(
 
     let args = vec![arg_from, arg_signals, arg_resolve_time, arg_request_id]
         .try_into()
-        .map_err(|_| anyhow!("failed to build args vec"))?; 
+        .map_err(|_| anyhow!("failed to build args vec"))?;
 
     let op = build_invoke_op(contract_hash, args)?;
 
@@ -114,17 +113,19 @@ pub fn build_base_tx(
             .map_err(|_| anyhow!("failed to build operations vec"))?,
         ext: TransactionExt::V0,
     };
-
-    tx.to_xdr(Limits::none())
-        .map_err(|e| anyhow!("failed to encode transaction XDR: {e}"))
+    Ok(tx)
 }
 
 /// Simulates `base_tx_xdr` against `rpc_url` and returns the
 /// `SorobanTransactionData` plus the minimum resource fee reported by the node.
 pub async fn simulate_transaction(
     rpc_url: &str,
-    base_tx_xdr: &[u8],
+    base_tx: &Transaction,
 ) -> anyhow::Result<(SorobanTransactionData, i64)> {
+    let base_tx_xdr = base_tx
+        .to_xdr(Limits::none())
+        .map_err(|e| anyhow!("failed to encode transaction XDR: {e}"))?;
+
     // Wrap the bare Transaction in an unsigned envelope for the RPC call.
     let tx = Transaction::from_xdr(base_tx_xdr, Limits::none())
         .map_err(|e| anyhow!("failed to decode tx for simulation: {e}"))?;
@@ -190,12 +191,21 @@ pub async fn simulate_transaction(
     let min_resource_fee: i64 = match result.get("minResourceFee") {
         Some(v) if v.is_string() => v
             .as_str()
-            .unwrap()
+            .ok_or_else(|| anyhow!("minResourceFee is not a string"))?
             .parse::<i64>()
             .map_err(|_| anyhow!("invalid minResourceFee string"))?,
-        Some(v) if v.is_i64() => v.as_i64().unwrap(),
-        Some(v) if v.is_u64() => v.as_u64().unwrap() as i64,
-        _ => return Err(anyhow!("missing or invalid minResourceFee in simulateTransaction response")),
+        Some(v) if v.is_i64() => v
+            .as_i64()
+            .ok_or_else(|| anyhow!("minResourceFee is not an i64"))?,
+        Some(v) if v.is_u64() => {
+            v.as_u64()
+                .ok_or_else(|| anyhow!("minResourceFee is not a u64"))? as i64
+        }
+        _ => {
+            return Err(anyhow!(
+                "missing or invalid minResourceFee in simulateTransaction response"
+            ));
+        }
     };
 
     Ok((soroban_data, min_resource_fee))
@@ -208,56 +218,19 @@ pub async fn simulate_transaction(
 /// `min_resource_fee` – from `simulate_transaction`; added to `base_fee` to
 ///                      produce the transaction's total fee field.
 pub fn build_unsigned_tx(
-    source_account: &str,
-    contract_address: &str,
-    base_fee: u32,
-    sequence: u64,
-    signals: &[(String, u64)],
-    resolve_time: u64,
-    request_id: u64,
+    tx: &mut Transaction,
     soroban_data: SorobanTransactionData,
     min_resource_fee: i64,
 ) -> anyhow::Result<Vec<u8>> {
-    let source_key = decode_stellar_address(source_account)?;
-    let contract_hash = decode_stellar_contract_address(contract_address)?;
-
-    let arg_from = ScVal::Address(ScAddress::Account(AccountId(
-        XdrPublicKey::PublicKeyTypeEd25519(Uint256(source_key)),
-    )));
-    let signal_vals = build_signal_vals(signals)?;
-    let arg_signals = ScVal::Vec(Some(ScVec(
-        signal_vals
-            .try_into()
-            .map_err(|_| anyhow!("failed to build signals vec"))?,
-    )));
-    let arg_resolve_time = ScVal::U64(resolve_time);
-    let arg_request_id = ScVal::U64(request_id);
-
-    let args = vec![arg_from, arg_signals, arg_resolve_time, arg_request_id]
-        .try_into()
-        .map_err(|_| anyhow!("failed to build args vec"))?;
-
-    let op = build_invoke_op(contract_hash, args)?;
+    let base_fee = tx.fee;
 
     // total fee = inclusion fee + resource fee (both are required by the network).
     let total_fee = u32::try_from(base_fee as i64 + min_resource_fee).map_err(|_| {
-        anyhow!(
-            "fee overflow: base_fee={base_fee} + min_resource_fee={min_resource_fee}"
-        )
+        anyhow!("fee overflow: base_fee={base_fee} + min_resource_fee={min_resource_fee}")
     })?;
 
-    let tx = Transaction {
-        source_account: MuxedAccount::Ed25519(Uint256(source_key)),
-        fee: total_fee,
-        seq_num: SequenceNumber(sequence as i64 + 1),
-        cond: timeout_precondition(),
-        memo: Memo::None,
-        operations: vec![op]
-            .try_into()
-            .map_err(|_| anyhow!("failed to build operations vec"))?,
-        // V1 ext is required for all Soroban InvokeHostFunction transactions.
-        ext: TransactionExt::V1(soroban_data),
-    };
+    tx.fee = total_fee;
+    tx.ext = TransactionExt::V1(soroban_data);
 
     tx.to_xdr(Limits::none())
         .map_err(|e| anyhow!("failed to encode transaction XDR: {e}"))
@@ -299,7 +272,9 @@ pub fn encode_signed_envelope(
     let tx = Transaction::from_xdr(unsigned_tx, Limits::none())
         .map_err(|e| anyhow!("failed to decode transaction XDR: {e}"))?;
 
-    let hint: [u8; 4] = public_key[28..32].try_into().unwrap();
+    let hint: [u8; 4] = public_key[28..32]
+        .try_into()
+        .map_err(|_| anyhow!("failed to extract signature hint from public key"))?;
     let sig_bytes: Signature = signature
         .to_vec()
         .try_into()
@@ -341,7 +316,10 @@ mod tests {
     use super::*;
 
     fn build_test_tx(source_address: &str, contract_address: &str) -> Vec<u8> {
-        build_base_tx(source_address, contract_address, 100, 1, &[], 0, 0).unwrap()
+        build_base_tx(source_address, contract_address, 100, 1, &[], 0, 0)
+            .unwrap()
+            .to_xdr(Limits::none())
+            .unwrap()
     }
 
     #[test]
@@ -416,13 +394,11 @@ mod tests {
         )
         .unwrap();
 
-        assert!(!tx.is_empty());
-        let decoded = Transaction::from_xdr(&tx, Limits::none()).unwrap();
-        assert_eq!(decoded.fee, 100);
+        assert_eq!(tx.fee, 100);
         // sequence is stored as current+1
-        assert_eq!(decoded.seq_num, SequenceNumber(43));
-        assert!(matches!(decoded.cond, Preconditions::Time(_)));
-        assert!(matches!(decoded.ext, TransactionExt::V0));
+        assert_eq!(tx.seq_num, SequenceNumber(43));
+        assert!(matches!(tx.cond, Preconditions::Time(_)));
+        assert!(matches!(tx.ext, TransactionExt::V0));
     }
 
     #[test]
@@ -431,10 +407,30 @@ mod tests {
         let contract_address = stellar_strkey::Contract([0xABu8; 32]).to_string();
         let signals = vec![("CS:BTC-USD".to_string(), 100u64)];
 
-        let tx1 = build_base_tx(&source_address, &contract_address, 100, 1, &signals, 1000, 1)
-            .unwrap();
-        let tx2 = build_base_tx(&source_address, &contract_address, 100, 1, &signals, 1000, 1)
-            .unwrap();
+        let tx1 = build_base_tx(
+            &source_address,
+            &contract_address,
+            100,
+            1,
+            &signals,
+            1000,
+            1,
+        )
+        .unwrap()
+        .to_xdr(Limits::none())
+        .unwrap();
+        let tx2 = build_base_tx(
+            &source_address,
+            &contract_address,
+            100,
+            1,
+            &signals,
+            1000,
+            1,
+        )
+        .unwrap()
+        .to_xdr(Limits::none())
+        .unwrap();
 
         assert_eq!(tx1, tx2);
     }
