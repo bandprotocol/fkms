@@ -1,5 +1,13 @@
 use anyhow::anyhow;
 use k256::sha2::{Digest, Sha256};
+use stellar_xdr::curr::{
+    AccountId, ContractId, DecoratedSignature, Hash, HostFunction, InvokeContractArgs,
+    InvokeHostFunctionOp, Limits, Memo, MuxedAccount, Operation, OperationBody, Preconditions,
+    PublicKey as XdrPublicKey, ReadXdr, ScAddress, ScSymbol, ScVal, ScVec, SequenceNumber,
+    Signature, SignatureHint, Transaction, TransactionEnvelope, TransactionExt,
+    TransactionV1Envelope, Uint256, WriteXdr,
+};
+
 
 /// Builds the unsigned Stellar Transaction XDR for a Soroban contract invocation
 /// that relays price data (signals) on-chain.
@@ -20,71 +28,77 @@ pub fn build_unsigned_tx(
     let source_key = decode_stellar_address(source_account)?;
     let contract_hash = decode_stellar_contract_address(contract_address)?;
 
-    let mut tx = Vec::new();
+    // arg[0]: from as ScVal Address (account)
+    let arg_from = ScVal::Address(ScAddress::Account(AccountId(
+        XdrPublicKey::PublicKeyTypeEd25519(Uint256(source_key)),
+    )));
 
-    // SourceAccount: MuxedAccount (type KEY_TYPE_ED25519 = 0)
-    tx.extend_from_slice(&0u32.to_be_bytes()); // KEY_TYPE_ED25519
-    tx.extend_from_slice(&source_key);
+    // arg[1]: signals as ScVal Vec<Vec<(Symbol, U64)>>
+    let signal_vals = signals
+        .iter()
+        .map(|(sym, price)| {
+            let sym_val = ScVal::Symbol(ScSymbol(
+                sym.as_str()
+                    .try_into()
+                    .map_err(|_| anyhow!("symbol too long: {}", sym))?,
+            ));
+            let price_val = ScVal::U64(*price);
+            let inner = ScVec(
+                vec![sym_val, price_val]
+                    .try_into()
+                    .map_err(|_| anyhow!("failed to build signal tuple"))?,
+            );
+            Ok(ScVal::Vec(Some(inner)))
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    let arg_signals = ScVal::Vec(Some(ScVec(
+        signal_vals
+            .try_into()
+            .map_err(|_| anyhow!("failed to build signals vec"))?,
+    )));
 
-    // Fee: uint32
-    tx.extend_from_slice(&fee.to_be_bytes());
+    // arg[2]: resolve_time as ScVal U64
+    let arg_resolve_time = ScVal::U64(resolve_time);
 
-    // SeqNum: SequenceNumber (int64)
-    tx.extend_from_slice(&sequence.to_be_bytes());
+    // arg[3]: request_id as ScVal U64
+    let arg_request_id = ScVal::U64(request_id);
 
-    // Cond: Preconditions (type PRECOND_NONE = 0)
-    tx.extend_from_slice(&0u32.to_be_bytes());
+    let args = vec![arg_from, arg_signals, arg_resolve_time, arg_request_id]
+        .try_into()
+        .map_err(|_| anyhow!("failed to build args vec"))?;
 
-    // Memo: Memo (type MEMO_NONE = 0)
-    tx.extend_from_slice(&0u32.to_be_bytes());
+    let op = Operation {
+        source_account: None,
+        body: OperationBody::InvokeHostFunction(InvokeHostFunctionOp {
+            host_function: HostFunction::InvokeContract(InvokeContractArgs {
+                contract_address: ScAddress::Contract(ContractId(Hash(contract_hash))),
+                function_name: ScSymbol(
+                    "relay"
+                        .try_into()
+                        .map_err(|_| anyhow!("invalid function name"))?,
+                ),
+                args,
+            }),
+            auth: vec![]
+                .try_into()
+                .map_err(|_| anyhow!("failed to build auth vec"))?,
+        }),
+    };
 
-    // Operations: array of 1 operation
-    tx.extend_from_slice(&1u32.to_be_bytes());
+    let tx = Transaction {
+        source_account: MuxedAccount::Ed25519(Uint256(source_key)),
+        fee,
+        seq_num: SequenceNumber(sequence as i64),
+        cond: Preconditions::None,
+        memo: Memo::None,
+        operations: vec![op]
+            .try_into()
+            .map_err(|_| anyhow!("failed to build operations vec"))?,
+        ext: TransactionExt::V0,
+    };
 
-    // Operation.sourceAccount: optional (absent = 0)
-    tx.extend_from_slice(&0u32.to_be_bytes());
-
-    // Operation.body: OperationType INVOKE_HOST_FUNCTION = 24
-    tx.extend_from_slice(&24u32.to_be_bytes());
-
-    // InvokeHostFunctionOp.hostFunction: HOST_FUNCTION_TYPE_INVOKE_CONTRACT = 0
-    tx.extend_from_slice(&0u32.to_be_bytes());
-
-    // InvokeContractArgs: contractAddress (SC_ADDRESS_TYPE_CONTRACT = 1) + functionName + args
-    // contractAddress
-    tx.extend_from_slice(&1u32.to_be_bytes()); // SC_ADDRESS_TYPE_CONTRACT
-    tx.extend_from_slice(&contract_hash);
-
-    // functionName: "relay" as SCSymbol (XDR variable-length string)
-    let func_name = b"relay";
-    tx.extend_from_slice(&(func_name.len() as u32).to_be_bytes());
-    tx.extend_from_slice(func_name);
-    // XDR padding to 4-byte boundary
-    let padding = (4 - (func_name.len() % 4)) % 4;
-    tx.extend_from_slice(&vec![0u8; padding]);
-
-    // args: array of 4 SCVal arguments
-    tx.extend_from_slice(&4u32.to_be_bytes());
-
-    // arg[0]: from as SCVal Address
-    encode_sc_val_address(&mut tx, &source_key);
-
-    // arg[1]: signals as SCVal Vec<(Symbol, u64)>
-    encode_signals_vec(&mut tx, signals);
-
-    // arg[2]: resolve_time as SCVal U64
-    encode_sc_val_u64(&mut tx, resolve_time);
-
-    // arg[3]: request_id as SCVal U64
-    encode_sc_val_u64(&mut tx, request_id);
-
-    // auth: array of 0 SorobanAuthorizationEntry
-    tx.extend_from_slice(&0u32.to_be_bytes());
-
-    // Ext: TransactionExt (type 0 = no extra)
-    tx.extend_from_slice(&0u32.to_be_bytes());
-
-    Ok(tx)
+    tx.to_xdr(Limits::none())
+        .map_err(|e| anyhow!("failed to encode transaction XDR: {e}"))
 }
 
 /// Computes the Stellar transaction hash used as the Ed25519 signing payload.
@@ -106,9 +120,8 @@ pub fn compute_tx_hash(network_passphrase: &str, unsigned_tx: &[u8]) -> Vec<u8> 
 
 /// Encodes a signed Stellar TransactionEnvelope in XDR format, ready for broadcast.
 ///
-/// Wraps the unsigned transaction with the Ed25519 signature as a
-/// `TransactionV1Envelope` (ENVELOPE_TYPE_TX = 2):
-///   [envelope_type(4)] [unsigned_tx] [sig_count(4)] [hint(4)] [sig_len(4)] [signature(64)]
+/// Decodes `unsigned_tx` back to a `Transaction`, wraps it in a `TransactionV1Envelope`
+/// with the Ed25519 signature, and returns the XDR-encoded envelope bytes.
 pub fn encode_signed_envelope(
     unsigned_tx: &[u8],
     public_key: &[u8],
@@ -127,182 +140,51 @@ pub fn encode_signed_envelope(
         ));
     }
 
-    let mut envelope = Vec::new();
+    let tx = Transaction::from_xdr(unsigned_tx, Limits::none())
+        .map_err(|e| anyhow!("failed to decode transaction XDR: {e}"))?;
 
-    // ENVELOPE_TYPE_TX = 2 (XDR union discriminant)
-    envelope.extend_from_slice(&2u32.to_be_bytes());
+    let hint: [u8; 4] = public_key[28..32].try_into().unwrap();
+    let sig_bytes: Signature = signature
+        .to_vec()
+        .try_into()
+        .map_err(|_| anyhow!("failed to encode signature bytes"))?;
 
-    // Transaction XDR body
-    envelope.extend_from_slice(unsigned_tx);
+    let envelope: TransactionEnvelope = TransactionEnvelope::Tx(TransactionV1Envelope {
+        tx,
+        signatures: vec![DecoratedSignature {
+            hint: SignatureHint(hint),
+            signature: sig_bytes,
+        }]
+        .try_into()
+        .map_err(|_| anyhow!("failed to build signatures vec"))?,
+    });
 
-    // DecoratedSignature array: length = 1
-    envelope.extend_from_slice(&1u32.to_be_bytes());
-
-    // SignatureHint: last 4 bytes of the public key
-    envelope.extend_from_slice(&public_key[28..32]);
-
-    // Signature: XDR variable-length opaque (4-byte length prefix + data)
-    envelope.extend_from_slice(&64u32.to_be_bytes());
-    envelope.extend_from_slice(signature);
-
-    Ok(envelope)
+    envelope
+        .to_xdr(Limits::none())
+        .map_err(|e| anyhow!("failed to encode envelope XDR: {e}"))
 }
 
 /// Decodes a Stellar G... (ED25519) address to the 32-byte public key.
 fn decode_stellar_address(address: &str) -> anyhow::Result<[u8; 32]> {
-    let decoded = stellar_base32_decode(address)?;
-    // Expected: 1 byte version + 32 bytes key + 2 bytes checksum = 35 bytes
-    if decoded.len() != 35 {
-        return Err(anyhow!(
-            "Invalid Stellar address length: expected 35 decoded bytes, got {}",
-            decoded.len()
-        ));
-    }
-    // Version byte for ED25519 public key: 6 << 3 = 48
-    if decoded[0] != 48 {
-        return Err(anyhow!(
-            "Invalid Stellar address version byte: expected 48 (G...), got {}",
-            decoded[0]
-        ));
-    }
-
-    // Verify checksum
-    let expected_checksum = stellar_crc16_xmodem(&decoded[..33]);
-    let actual_checksum = u16::from_le_bytes([decoded[33], decoded[34]]);
-    if expected_checksum != actual_checksum {
-        return Err(anyhow!("Invalid Stellar address checksum"));
-    }
-
-    let mut key = [0u8; 32];
-    key.copy_from_slice(&decoded[1..33]);
-    Ok(key)
+    stellar_strkey::ed25519::PublicKey::from_string(address)
+        .map(|pk| pk.0)
+        .map_err(|e| anyhow!("invalid Stellar address: {e}"))
 }
 
 /// Decodes a Stellar C... (contract) address to the 32-byte contract hash.
 fn decode_stellar_contract_address(address: &str) -> anyhow::Result<[u8; 32]> {
-    let decoded = stellar_base32_decode(address)?;
-    // Expected: 1 byte version + 32 bytes hash + 2 bytes checksum = 35 bytes
-    if decoded.len() != 35 {
-        return Err(anyhow!(
-            "Invalid Stellar contract address length: expected 35 decoded bytes, got {}",
-            decoded.len()
-        ));
-    }
-    // Version byte for Contract: 2 << 3 = 16
-    if decoded[0] != 16 {
-        return Err(anyhow!(
-            "Invalid Stellar contract address version byte: expected 16 (C...), got {}",
-            decoded[0]
-        ));
-    }
-
-    // Verify checksum
-    let expected_checksum = stellar_crc16_xmodem(&decoded[..33]);
-    let actual_checksum = u16::from_le_bytes([decoded[33], decoded[34]]);
-    if expected_checksum != actual_checksum {
-        return Err(anyhow!("Invalid Stellar contract address checksum"));
-    }
-
-    let mut hash = [0u8; 32];
-    hash.copy_from_slice(&decoded[1..33]);
-    Ok(hash)
-}
-
-/// Encodes an SCVal representing an Address.
-fn encode_sc_val_address(buf: &mut Vec<u8>, key: &[u8; 32]) {
-    // SCV_ADDRESS = 18
-    buf.extend_from_slice(&18u32.to_be_bytes());
-    // SCAddressType::Account = 0
-    buf.extend_from_slice(&0u32.to_be_bytes());
-    // PublicKeyTypeEd25519 = 0
-    buf.extend_from_slice(&0u32.to_be_bytes());
-    // 32-byte key
-    buf.extend_from_slice(key);
-}
-
-/// Encodes an SCVal representing a Vec<(Symbol, U64)> of signals.
-fn encode_signals_vec(buf: &mut Vec<u8>, signals: &[(String, u64)]) {
-    // SCV_VEC = 16
-    buf.extend_from_slice(&16u32.to_be_bytes());
-    // Optional present (1 = Some)
-    buf.extend_from_slice(&1u32.to_be_bytes());
-    // Vector length
-    buf.extend_from_slice(&(signals.len() as u32).to_be_bytes());
-
-    for (symbol, price) in signals {
-        // inner Tuple is SCV_VEC = 16
-        buf.extend_from_slice(&16u32.to_be_bytes());
-        // Optional present (1 = Some)
-        buf.extend_from_slice(&1u32.to_be_bytes());
-        // Tuple length = 2
-        buf.extend_from_slice(&2u32.to_be_bytes());
-
-        // Element 0: SCV_SYMBOL = 15
-        buf.extend_from_slice(&15u32.to_be_bytes());
-        let sym_bytes = symbol.as_bytes();
-        buf.extend_from_slice(&(sym_bytes.len() as u32).to_be_bytes());
-        buf.extend_from_slice(sym_bytes);
-        // XDR padding
-        let padding = (4 - (sym_bytes.len() % 4)) % 4;
-        buf.extend_from_slice(&vec![0u8; padding]);
-
-        // Element 1: SCV_U64 = 5
-        buf.extend_from_slice(&5u32.to_be_bytes());
-        buf.extend_from_slice(&price.to_be_bytes());
-    }
-}
-
-/// Encodes an SCVal U64 value.
-fn encode_sc_val_u64(buf: &mut Vec<u8>, value: u64) {
-    // SCV_U64 = 5
-    buf.extend_from_slice(&5u32.to_be_bytes());
-    buf.extend_from_slice(&value.to_be_bytes());
-}
-
-fn stellar_crc16_xmodem(data: &[u8]) -> u16 {
-    let mut crc: u16 = 0;
-    for &byte in data {
-        crc ^= (byte as u16) << 8;
-        for _ in 0..8 {
-            if crc & 0x8000 != 0 {
-                crc = (crc << 1) ^ 0x1021;
-            } else {
-                crc <<= 1;
-            }
-        }
-    }
-    crc
-}
-
-fn stellar_base32_decode(input: &str) -> anyhow::Result<Vec<u8>> {
-    const ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
-
-    let mut buffer: u64 = 0;
-    let mut bits_in_buffer = 0;
-    let mut result = Vec::new();
-
-    for ch in input.chars() {
-        if ch == '=' {
-            break;
-        }
-        let val = ALPHABET
-            .iter()
-            .position(|&c| c == ch as u8)
-            .ok_or_else(|| anyhow!("Invalid base32 character: {}", ch))?;
-        buffer = (buffer << 5) | val as u64;
-        bits_in_buffer += 5;
-        if bits_in_buffer >= 8 {
-            bits_in_buffer -= 8;
-            result.push(((buffer >> bits_in_buffer) & 0xFF) as u8);
-        }
-    }
-
-    Ok(result)
+    stellar_strkey::Contract::from_string(address)
+        .map(|c| c.0)
+        .map_err(|e| anyhow!("invalid Stellar contract address: {e}"))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn build_test_tx(source_address: &str, contract_address: &str) -> Vec<u8> {
+        build_unsigned_tx(source_address, contract_address, 100, 1, &[], 0, 0).unwrap()
+    }
 
     #[test]
     fn test_compute_tx_hash_deterministic() {
@@ -312,7 +194,6 @@ mod tests {
         let hash = compute_tx_hash(network_passphrase, unsigned_tx);
         assert_eq!(hash.len(), 32);
 
-        // Verify deterministic
         let hash2 = compute_tx_hash(network_passphrase, unsigned_tx);
         assert_eq!(hash, hash2);
     }
@@ -341,60 +222,9 @@ mod tests {
     }
 
     #[test]
-    fn test_encode_signed_envelope_structure() {
-        let unsigned_tx = vec![0xAA; 48]; // mock 48-byte tx
-        let public_key = vec![0xBB; 32];
-        let signature = vec![0xCC; 64];
-
-        let envelope = encode_signed_envelope(&unsigned_tx, &public_key, &signature).unwrap();
-
-        // envelope_type(4) + tx(48) + sig_count(4) + hint(4) + sig_len(4) + sig(64) = 128
-        assert_eq!(envelope.len(), 128);
-
-        // Check envelope type = 2
-        assert_eq!(&envelope[0..4], &[0, 0, 0, 2]);
-
-        // Check unsigned tx body
-        assert_eq!(&envelope[4..52], &unsigned_tx[..]);
-
-        // Check signature count = 1
-        assert_eq!(&envelope[52..56], &[0, 0, 0, 1]);
-
-        // Check hint = last 4 bytes of public key
-        assert_eq!(&envelope[56..60], &[0xBB, 0xBB, 0xBB, 0xBB]);
-
-        // Check signature length = 64
-        assert_eq!(&envelope[60..64], &[0, 0, 0, 64]);
-
-        // Check signature
-        assert_eq!(&envelope[64..128], &signature[..]);
-    }
-
-    #[test]
-    fn test_encode_signed_envelope_invalid_pubkey() {
-        let result = encode_signed_envelope(&[0; 48], &[0; 31], &[0; 64]);
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_encode_signed_envelope_invalid_signature() {
-        let result = encode_signed_envelope(&[0; 48], &[0; 32], &[0; 63]);
-        assert!(result.is_err());
-    }
-
-    #[test]
     fn test_decode_stellar_address_roundtrip() {
-        // Use a well-known test address: GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN7
-        // This is a valid Stellar public key address
-        let key = [0u8; 32]; // zero key for testing
-        // Build a valid G... address from the zero key
-        let mut payload = Vec::with_capacity(35);
-        payload.push(6 << 3); // version byte for ED25519
-        payload.extend_from_slice(&key);
-        let checksum = stellar_crc16_xmodem(&payload);
-        payload.extend_from_slice(&checksum.to_le_bytes());
-
-        let address = stellar_base32_encode(&payload);
+        let key = [0u8; 32];
+        let address = stellar_strkey::ed25519::PublicKey(key).to_string();
         let decoded = decode_stellar_address(&address).unwrap();
         assert_eq!(decoded, key);
     }
@@ -402,25 +232,15 @@ mod tests {
     #[test]
     fn test_decode_stellar_contract_address_roundtrip() {
         let hash = [0xABu8; 32];
-        let mut payload = Vec::with_capacity(35);
-        payload.push(2 << 3); // version byte for Contract
-        payload.extend_from_slice(&hash);
-        let checksum = stellar_crc16_xmodem(&payload);
-        payload.extend_from_slice(&checksum.to_le_bytes());
-
-        let address = stellar_base32_encode(&payload);
+        let address = stellar_strkey::Contract(hash).to_string();
         let decoded = decode_stellar_contract_address(&address).unwrap();
         assert_eq!(decoded, hash);
     }
 
     #[test]
     fn test_build_unsigned_tx_produces_output() {
-        // Build valid test addresses
-        let source_key = [0u8; 32];
-        let source_address = build_test_stellar_address(6 << 3, &source_key);
-
-        let contract_hash = [0xABu8; 32];
-        let contract_address = build_test_stellar_address(2 << 3, &contract_hash);
+        let source_address = stellar_strkey::ed25519::PublicKey([0u8; 32]).to_string();
+        let contract_address = stellar_strkey::Contract([0xABu8; 32]).to_string();
 
         let signals = vec![
             ("CS:BTC-USD".to_string(), 67758920310332u64),
@@ -439,72 +259,65 @@ mod tests {
         .unwrap();
 
         assert!(!tx.is_empty());
-        // Verify the tx starts with source account (KEY_TYPE_ED25519 = 0 + 32 bytes key)
-        assert_eq!(&tx[0..4], &[0, 0, 0, 0]); // KEY_TYPE_ED25519
-        assert_eq!(&tx[4..36], &source_key);
+        let decoded = Transaction::from_xdr(&tx, Limits::none()).unwrap();
+        assert_eq!(decoded.fee, 100);
+        assert_eq!(decoded.seq_num, SequenceNumber(42));
+        assert!(matches!(decoded.cond, Preconditions::None));
+        assert!(matches!(decoded.ext, TransactionExt::V0));
     }
 
     #[test]
     fn test_build_unsigned_tx_deterministic() {
-        let source_address = build_test_stellar_address(6 << 3, &[0u8; 32]);
-        let contract_address = build_test_stellar_address(2 << 3, &[0xABu8; 32]);
+        let source_address = stellar_strkey::ed25519::PublicKey([0u8; 32]).to_string();
+        let contract_address = stellar_strkey::Contract([0xABu8; 32]).to_string();
         let signals = vec![("CS:BTC-USD".to_string(), 100u64)];
 
-        let tx1 = build_unsigned_tx(
-            &source_address,
-            &contract_address,
-            100,
-            1,
-            &signals,
-            1000,
-            1,
-        )
-        .unwrap();
-        let tx2 = build_unsigned_tx(
-            &source_address,
-            &contract_address,
-            100,
-            1,
-            &signals,
-            1000,
-            1,
-        )
-        .unwrap();
+        let tx1 = build_unsigned_tx(&source_address, &contract_address, 100, 1, &signals, 1000, 1)
+            .unwrap();
+        let tx2 = build_unsigned_tx(&source_address, &contract_address, 100, 1, &signals, 1000, 1)
+            .unwrap();
 
         assert_eq!(tx1, tx2);
     }
 
-    // Helper to build a valid Stellar StrKey address for testing.
-    fn build_test_stellar_address(version_byte: u8, key: &[u8; 32]) -> String {
-        let mut payload = Vec::with_capacity(35);
-        payload.push(version_byte);
-        payload.extend_from_slice(key);
-        let checksum = stellar_crc16_xmodem(&payload);
-        payload.extend_from_slice(&checksum.to_le_bytes());
-        stellar_base32_encode(&payload)
+    #[test]
+    fn test_encode_signed_envelope_roundtrip() {
+        let source_address = stellar_strkey::ed25519::PublicKey([0u8; 32]).to_string();
+        let contract_address = stellar_strkey::Contract([0xABu8; 32]).to_string();
+        let unsigned_tx = build_test_tx(&source_address, &contract_address);
+
+        let public_key = vec![0xBBu8; 32];
+        let signature = vec![0xCCu8; 64];
+
+        let envelope = encode_signed_envelope(&unsigned_tx, &public_key, &signature).unwrap();
+
+        let decoded = TransactionEnvelope::from_xdr(&envelope, Limits::none()).unwrap();
+        match decoded {
+            TransactionEnvelope::Tx(env) => {
+                assert_eq!(env.signatures.len(), 1);
+                assert_eq!(env.signatures[0].hint, SignatureHint([0xBB; 4]));
+            }
+            _ => panic!("expected TransactionEnvelope::Tx"),
+        }
     }
 
-    fn stellar_base32_encode(data: &[u8]) -> String {
-        const ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
-        let mut result = String::new();
-        let mut buffer: u64 = 0;
-        let mut bits_in_buffer = 0;
+    #[test]
+    fn test_encode_signed_envelope_invalid_pubkey() {
+        let source_address = stellar_strkey::ed25519::PublicKey([0u8; 32]).to_string();
+        let contract_address = stellar_strkey::Contract([0xABu8; 32]).to_string();
+        let unsigned_tx = build_test_tx(&source_address, &contract_address);
 
-        for &byte in data {
-            buffer = (buffer << 8) | byte as u64;
-            bits_in_buffer += 8;
-            while bits_in_buffer >= 5 {
-                bits_in_buffer -= 5;
-                let index = ((buffer >> bits_in_buffer) & 0x1F) as usize;
-                result.push(ALPHABET[index] as char);
-            }
-        }
+        let result = encode_signed_envelope(&unsigned_tx, &[0; 31], &[0; 64]);
+        assert!(result.is_err());
+    }
 
-        if bits_in_buffer > 0 {
-            let index = ((buffer << (5 - bits_in_buffer)) & 0x1F) as usize;
-            result.push(ALPHABET[index] as char);
-        }
+    #[test]
+    fn test_encode_signed_envelope_invalid_signature() {
+        let source_address = stellar_strkey::ed25519::PublicKey([0u8; 32]).to_string();
+        let contract_address = stellar_strkey::Contract([0xABu8; 32]).to_string();
+        let unsigned_tx = build_test_tx(&source_address, &contract_address);
 
-        result
+        let result = encode_signed_envelope(&unsigned_tx, &[0; 32], &[0; 63]);
+        assert!(result.is_err());
     }
 }

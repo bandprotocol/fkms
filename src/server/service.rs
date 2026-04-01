@@ -22,6 +22,8 @@ use sha3::{Digest, Sha3_256};
 use std::collections::HashMap;
 use tonic::{Request, Response, Status};
 use tracing::{error, info, instrument, warn};
+use base64::{engine::general_purpose, Engine as _};
+
 
 #[tonic::async_trait]
 impl FkmsService for Server {
@@ -435,9 +437,11 @@ impl FkmsService for Server {
                             error!("failed to encode signed soroban envelope: {:?}", e);
                             Status::internal(format!("Failed to encode signed envelope: {e}"))
                         })?;
+                        let tx_blob_b64 = general_purpose::STANDARD.encode(&tx_blob).into_bytes();
+                        println!("tx_blob_b64: {}", String::from_utf8_lossy(&tx_blob_b64));
 
                         info!("successfully signed soroban transaction");
-                        Ok(Response::new(SignSorobanResponse { tx_blob }))
+                        Ok(Response::new(SignSorobanResponse { tx_blob: tx_blob_b64 }))
                     }
                     Err(e) => {
                         error!("failed to sign soroban transaction: {:?}", e);

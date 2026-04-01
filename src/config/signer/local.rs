@@ -17,6 +17,8 @@ pub enum LocalSignerConfig {
         index: u32,
         chain_type: ChainType,
         #[serde(default)]
+        derivation_scheme: Option<DerivationScheme>,
+        #[serde(default)]
         address: Option<String>,
     },
 }
@@ -36,4 +38,12 @@ pub enum ChainType {
     Icon,
     Flow,
     Soroban,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DerivationScheme {
+    #[default]
+    Bip32,
+    Slip010,
 }

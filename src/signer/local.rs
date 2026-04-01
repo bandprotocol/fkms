@@ -19,6 +19,8 @@ use k256::ecdsa::SigningKey as K256SigningKey;
 use k256::ecdsa::signature::hazmat::PrehashSigner;
 use k256::elliptic_curve::CurveArithmetic;
 use p256::ecdsa::SigningKey as P256SigningKey;
+use stellar_strkey::Strkey;
+use stellar_strkey::ed25519::PublicKey;
 
 pub struct LocalSigner {
     signing_key: SigningKey,
@@ -84,10 +86,8 @@ impl LocalSigner {
                     .map_err(|_| anyhow::anyhow!("Ed25519 private key must be exactly 32 bytes"))?;
                 let signing_key = Ed25519SigningKey::from_bytes(&key_bytes);
                 let public_key = signing_key.verifying_key().to_bytes().to_vec();
-                let address = address
-                    .map(|a| a.to_string())
-                    .map_or_else(|| public_key_to_soroban_address(&public_key), Ok)?;
-                (SigningKey::Ed25519(signing_key), public_key, address)
+                let pubkey = Strkey::PublicKeyEd25519(stellar_strkey::ed25519::PublicKey(signing_key.verifying_key().to_bytes())).to_string().to_string();
+                (SigningKey::Ed25519(signing_key), public_key, pubkey)
             }
         };
 
