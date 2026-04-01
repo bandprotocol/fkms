@@ -403,26 +403,52 @@ impl FkmsService for Server {
                     .map_err(|_| Status::invalid_argument("Timestamp must be non-negative"))?;
                 let request_id = tunnel_packet.sequence;
 
-                let fee: u32 = signer_payload
+                let base_fee: u32 = signer_payload
                     .fee
                     .parse()
                     .map_err(|_| Status::invalid_argument("fee must be a valid u32"))?;
 
-                let unsigned_tx = soroban::build_unsigned_tx(
+                // build a V0 transaction for simulation.
+                let base_tx = soroban::build_base_tx(
                     &signer_payload.source_account,
                     &signer_payload.contract_address,
-                    fee,
+                    base_fee,
                     signer_payload.sequence,
                     &signals,
                     resolve_time,
                     request_id,
                 )
                 .map_err(|e| {
-                    error!("failed to build soroban unsigned tx: {:?}", e);
-                    Status::internal(format!("Failed to build unsigned transaction: {e}"))
+                    error!("failed to build soroban base tx: {:?}", e);
+                    Status::internal(format!("Failed to build base transaction: {e}"))
                 })?;
 
-                // Compute Stellar transaction hash
+                // Step 2 – simulate to obtain SorobanTransactionData and resource fee.
+                let (soroban_data, min_resource_fee) =
+                    soroban::simulate_transaction(&signer_payload.rpc_url, &base_tx)
+                        .await
+                        .map_err(|e| {
+                            error!("simulateTransaction failed: {:?}", e);
+                            Status::internal(format!("Failed to simulate transaction: {e}"))
+                        })?;
+
+                // Step 3 – rebuild with V1 ext and sign the final hash.
+                let unsigned_tx = soroban::build_unsigned_tx(
+                    &signer_payload.source_account,
+                    &signer_payload.contract_address,
+                    base_fee,
+                    signer_payload.sequence,
+                    &signals,
+                    resolve_time,
+                    request_id,
+                    soroban_data,
+                    min_resource_fee,
+                )
+                .map_err(|e| {
+                    error!("failed to build soroban final tx: {:?}", e);
+                    Status::internal(format!("Failed to build final transaction: {e}"))
+                })?;
+
                 let tx_hash =
                     soroban::compute_tx_hash(&signer_payload.network_passphrase, &unsigned_tx);
 
@@ -438,7 +464,6 @@ impl FkmsService for Server {
                             Status::internal(format!("Failed to encode signed envelope: {e}"))
                         })?;
                         let tx_blob_b64 = general_purpose::STANDARD.encode(&tx_blob).into_bytes();
-                        println!("tx_blob_b64: {}", String::from_utf8_lossy(&tx_blob_b64));
 
                         info!("successfully signed soroban transaction");
                         Ok(Response::new(SignSorobanResponse { tx_blob: tx_blob_b64 }))

@@ -15,7 +15,7 @@ pub fn filter_usd_signal(sp: &TunnelSignalPrice) -> Option<(String, u64)> {
     }
 
     let base_quote: Vec<&str> = parts[1].split('-').collect();
-    if base_quote.len() == 2 && base_quote[1] == "USD" && sp.price > 0 {
+    if base_quote.len() == 2 && base_quote[1] == "USD" && sp.price > 0 && base_quote[0] == "USDC" {
         Some((base_quote[0].to_string(), sp.price))
     } else {
         None

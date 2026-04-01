@@ -1,40 +1,31 @@
 use anyhow::anyhow;
+use base64::{Engine as _, engine::general_purpose};
 use k256::sha2::{Digest, Sha256};
 use stellar_xdr::curr::{
     AccountId, ContractId, DecoratedSignature, Hash, HostFunction, InvokeContractArgs,
     InvokeHostFunctionOp, Limits, Memo, MuxedAccount, Operation, OperationBody, Preconditions,
     PublicKey as XdrPublicKey, ReadXdr, ScAddress, ScSymbol, ScVal, ScVec, SequenceNumber,
-    Signature, SignatureHint, Transaction, TransactionEnvelope, TransactionExt,
-    TransactionV1Envelope, Uint256, WriteXdr,
+    Signature, SignatureHint, SorobanTransactionData, TimeBounds, TimePoint, Transaction,
+    TransactionEnvelope, TransactionExt, TransactionV1Envelope, Uint256, VecM, WriteXdr,
 };
 
+const TX_TIMEOUT_SECS: u64 = 300;
 
-/// Builds the unsigned Stellar Transaction XDR for a Soroban contract invocation
-/// that relays price data (signals) on-chain.
-///
-/// The transaction invokes the `relay` function on `contract_address` with the
-/// provided signals, resolve_time, and request_id from the tunnel packet.
-///
-/// Returns the raw Transaction XDR bytes (not an envelope).
-pub fn build_unsigned_tx(
-    source_account: &str,
-    contract_address: &str,
-    fee: u32,
-    sequence: u64,
-    signals: &[(String, u64)],
-    resolve_time: u64,
-    request_id: u64,
-) -> anyhow::Result<Vec<u8>> {
-    let source_key = decode_stellar_address(source_account)?;
-    let contract_hash = decode_stellar_contract_address(contract_address)?;
+// ── helpers ──────────────────────────────────────────────────────────────────
 
-    // arg[0]: from as ScVal Address (account)
-    let arg_from = ScVal::Address(ScAddress::Account(AccountId(
-        XdrPublicKey::PublicKeyTypeEd25519(Uint256(source_key)),
-    )));
+fn timeout_precondition() -> Preconditions {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    Preconditions::Time(TimeBounds {
+        min_time: TimePoint(0),
+        max_time: TimePoint(now + TX_TIMEOUT_SECS),
+    })
+}
 
-    // arg[1]: signals as ScVal Vec<Vec<(Symbol, U64)>>
-    let signal_vals = signals
+fn build_signal_vals(signals: &[(String, u64)]) -> anyhow::Result<Vec<ScVal>> {
+    signals
         .iter()
         .map(|(sym, price)| {
             let sym_val = ScVal::Symbol(ScSymbol(
@@ -50,24 +41,14 @@ pub fn build_unsigned_tx(
             );
             Ok(ScVal::Vec(Some(inner)))
         })
-        .collect::<anyhow::Result<Vec<_>>>()?;
-    let arg_signals = ScVal::Vec(Some(ScVec(
-        signal_vals
-            .try_into()
-            .map_err(|_| anyhow!("failed to build signals vec"))?,
-    )));
+        .collect()
+}
 
-    // arg[2]: resolve_time as ScVal U64
-    let arg_resolve_time = ScVal::U64(resolve_time);
-
-    // arg[3]: request_id as ScVal U64
-    let arg_request_id = ScVal::U64(request_id);
-
-    let args = vec![arg_from, arg_signals, arg_resolve_time, arg_request_id]
-        .try_into()
-        .map_err(|_| anyhow!("failed to build args vec"))?;
-
-    let op = Operation {
+fn build_invoke_op(
+    contract_hash: [u8; 32],
+    args: VecM<ScVal>,
+) -> anyhow::Result<Operation> {
+    Ok(Operation {
         source_account: None,
         body: OperationBody::InvokeHostFunction(InvokeHostFunctionOp {
             host_function: HostFunction::InvokeContract(InvokeContractArgs {
@@ -83,13 +64,50 @@ pub fn build_unsigned_tx(
                 .try_into()
                 .map_err(|_| anyhow!("failed to build auth vec"))?,
         }),
-    };
+    })
+}
+
+// ── public API ────────────────────────────────────────────────────────────────
+
+/// Builds an unsigned transaction with `TransactionExt::V0` for use as the
+/// simulation payload.  The sequence is already incremented (+1) so Stellar
+/// accepts it if we ever skip simulation (e.g. in tests).
+pub fn build_base_tx(
+    source_account: &str,
+    contract_address: &str,
+    fee: u32,
+    sequence: u64,
+    signals: &[(String, u64)],
+    resolve_time: u64,
+    request_id: u64,
+) -> anyhow::Result<Vec<u8>> {
+    let source_key = decode_stellar_address(source_account)?;
+    let contract_hash = decode_stellar_contract_address(contract_address)?;
+
+    let arg_from = ScVal::Address(ScAddress::Account(AccountId(
+        XdrPublicKey::PublicKeyTypeEd25519(Uint256(source_key)),
+    )));
+    let signal_vals = build_signal_vals(signals)?;
+    let arg_signals = ScVal::Vec(Some(ScVec(
+        signal_vals
+            .try_into()
+            .map_err(|_| anyhow!("failed to build signals vec"))?,
+    )));
+    let arg_resolve_time = ScVal::U64(resolve_time);
+    let arg_request_id = ScVal::U64(request_id);
+
+    let args = vec![arg_from, arg_signals, arg_resolve_time, arg_request_id]
+        .try_into()
+        .map_err(|_| anyhow!("failed to build args vec"))?; 
+
+    let op = build_invoke_op(contract_hash, args)?;
 
     let tx = Transaction {
         source_account: MuxedAccount::Ed25519(Uint256(source_key)),
         fee,
-        seq_num: SequenceNumber(sequence as i64),
-        cond: Preconditions::None,
+        // Stellar requires seq_num == account_sequence + 1
+        seq_num: SequenceNumber(sequence as i64 + 1),
+        cond: timeout_precondition(),
         memo: Memo::None,
         operations: vec![op]
             .try_into()
@@ -101,15 +119,156 @@ pub fn build_unsigned_tx(
         .map_err(|e| anyhow!("failed to encode transaction XDR: {e}"))
 }
 
+/// Simulates `base_tx_xdr` against `rpc_url` and returns the
+/// `SorobanTransactionData` plus the minimum resource fee reported by the node.
+pub async fn simulate_transaction(
+    rpc_url: &str,
+    base_tx_xdr: &[u8],
+) -> anyhow::Result<(SorobanTransactionData, i64)> {
+    // Wrap the bare Transaction in an unsigned envelope for the RPC call.
+    let tx = Transaction::from_xdr(base_tx_xdr, Limits::none())
+        .map_err(|e| anyhow!("failed to decode tx for simulation: {e}"))?;
+
+    let envelope = TransactionEnvelope::Tx(TransactionV1Envelope {
+        tx,
+        signatures: vec![]
+            .try_into()
+            .map_err(|_| anyhow!("failed to build empty signatures for simulation"))?,
+    });
+
+    let envelope_xdr = envelope
+        .to_xdr(Limits::none())
+        .map_err(|e| anyhow!("failed to encode envelope for simulation: {e}"))?;
+    let envelope_b64 = general_purpose::STANDARD.encode(&envelope_xdr);
+
+    let body = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "simulateTransaction",
+        "params": { "transaction": envelope_b64 }
+    });
+
+    let client = reqwest::Client::new();
+    let resp = client
+        .post(rpc_url)
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| anyhow!("simulateTransaction request failed: {e}"))?;
+
+    let resp_json: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| anyhow!("failed to parse simulateTransaction response: {e}"))?;
+
+    if let Some(err) = resp_json.get("error") {
+        return Err(anyhow!("simulateTransaction RPC error: {}", err));
+    }
+
+    let result = resp_json
+        .get("result")
+        .ok_or_else(|| anyhow!("missing result in simulateTransaction response"))?;
+
+    if let Some(err) = result.get("error") {
+        return Err(anyhow!("simulateTransaction execution error: {}", err));
+    }
+
+    // Decode SorobanTransactionData from the base64 XDR in the response.
+    let tx_data_b64 = result
+        .get("transactionData")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow!("missing transactionData in simulateTransaction response"))?;
+
+    let tx_data_xdr = general_purpose::STANDARD
+        .decode(tx_data_b64)
+        .map_err(|e| anyhow!("failed to decode transactionData base64: {e}"))?;
+
+    let soroban_data = SorobanTransactionData::from_xdr(&tx_data_xdr, Limits::none())
+        .map_err(|e| anyhow!("failed to decode SorobanTransactionData XDR: {e}"))?;
+
+    // minResourceFee may arrive as a JSON string or number.
+    let min_resource_fee: i64 = match result.get("minResourceFee") {
+        Some(v) if v.is_string() => v
+            .as_str()
+            .unwrap()
+            .parse::<i64>()
+            .map_err(|_| anyhow!("invalid minResourceFee string"))?,
+        Some(v) if v.is_i64() => v.as_i64().unwrap(),
+        Some(v) if v.is_u64() => v.as_u64().unwrap() as i64,
+        _ => return Err(anyhow!("missing or invalid minResourceFee in simulateTransaction response")),
+    };
+
+    Ok((soroban_data, min_resource_fee))
+}
+
+/// Builds the final unsigned transaction with `TransactionExt::V1` using the
+/// `SorobanTransactionData` returned by simulation.
+///
+/// `base_fee`       – user-configured inclusion fee (stroops, typically 100)
+/// `min_resource_fee` – from `simulate_transaction`; added to `base_fee` to
+///                      produce the transaction's total fee field.
+pub fn build_unsigned_tx(
+    source_account: &str,
+    contract_address: &str,
+    base_fee: u32,
+    sequence: u64,
+    signals: &[(String, u64)],
+    resolve_time: u64,
+    request_id: u64,
+    soroban_data: SorobanTransactionData,
+    min_resource_fee: i64,
+) -> anyhow::Result<Vec<u8>> {
+    let source_key = decode_stellar_address(source_account)?;
+    let contract_hash = decode_stellar_contract_address(contract_address)?;
+
+    let arg_from = ScVal::Address(ScAddress::Account(AccountId(
+        XdrPublicKey::PublicKeyTypeEd25519(Uint256(source_key)),
+    )));
+    let signal_vals = build_signal_vals(signals)?;
+    let arg_signals = ScVal::Vec(Some(ScVec(
+        signal_vals
+            .try_into()
+            .map_err(|_| anyhow!("failed to build signals vec"))?,
+    )));
+    let arg_resolve_time = ScVal::U64(resolve_time);
+    let arg_request_id = ScVal::U64(request_id);
+
+    let args = vec![arg_from, arg_signals, arg_resolve_time, arg_request_id]
+        .try_into()
+        .map_err(|_| anyhow!("failed to build args vec"))?;
+
+    let op = build_invoke_op(contract_hash, args)?;
+
+    // total fee = inclusion fee + resource fee (both are required by the network).
+    let total_fee = u32::try_from(base_fee as i64 + min_resource_fee).map_err(|_| {
+        anyhow!(
+            "fee overflow: base_fee={base_fee} + min_resource_fee={min_resource_fee}"
+        )
+    })?;
+
+    let tx = Transaction {
+        source_account: MuxedAccount::Ed25519(Uint256(source_key)),
+        fee: total_fee,
+        seq_num: SequenceNumber(sequence as i64 + 1),
+        cond: timeout_precondition(),
+        memo: Memo::None,
+        operations: vec![op]
+            .try_into()
+            .map_err(|_| anyhow!("failed to build operations vec"))?,
+        // V1 ext is required for all Soroban InvokeHostFunction transactions.
+        ext: TransactionExt::V1(soroban_data),
+    };
+
+    tx.to_xdr(Limits::none())
+        .map_err(|e| anyhow!("failed to encode transaction XDR: {e}"))
+}
+
 /// Computes the Stellar transaction hash used as the Ed25519 signing payload.
 ///
-/// The hash is computed as SHA-256(network_id || envelope_type_tx || unsigned_tx_xdr),
-/// where network_id = SHA-256(network_passphrase) and envelope_type_tx is the
-/// big-endian 32-bit encoding of ENVELOPE_TYPE_TX (2).
+/// SHA-256(network_id || ENVELOPE_TYPE_TX || unsigned_tx_xdr)
 pub fn compute_tx_hash(network_passphrase: &str, unsigned_tx: &[u8]) -> Vec<u8> {
     let network_id = Sha256::digest(network_passphrase.as_bytes());
-    // ENVELOPE_TYPE_TX = 2 (XDR big-endian int32)
-    let envelope_type_tx: [u8; 4] = [0, 0, 0, 2];
+    let envelope_type_tx: [u8; 4] = [0, 0, 0, 2]; // ENVELOPE_TYPE_TX = 2
 
     let mut hasher = Sha256::new();
     hasher.update(network_id);
@@ -118,10 +277,7 @@ pub fn compute_tx_hash(network_passphrase: &str, unsigned_tx: &[u8]) -> Vec<u8> 
     hasher.finalize().to_vec()
 }
 
-/// Encodes a signed Stellar TransactionEnvelope in XDR format, ready for broadcast.
-///
-/// Decodes `unsigned_tx` back to a `Transaction`, wraps it in a `TransactionV1Envelope`
-/// with the Ed25519 signature, and returns the XDR-encoded envelope bytes.
+/// Encodes a signed TransactionEnvelope XDR ready for broadcast.
 pub fn encode_signed_envelope(
     unsigned_tx: &[u8],
     public_key: &[u8],
@@ -149,7 +305,7 @@ pub fn encode_signed_envelope(
         .try_into()
         .map_err(|_| anyhow!("failed to encode signature bytes"))?;
 
-    let envelope: TransactionEnvelope = TransactionEnvelope::Tx(TransactionV1Envelope {
+    let envelope = TransactionEnvelope::Tx(TransactionV1Envelope {
         tx,
         signatures: vec![DecoratedSignature {
             hint: SignatureHint(hint),
@@ -164,26 +320,28 @@ pub fn encode_signed_envelope(
         .map_err(|e| anyhow!("failed to encode envelope XDR: {e}"))
 }
 
-/// Decodes a Stellar G... (ED25519) address to the 32-byte public key.
+// ── address helpers ───────────────────────────────────────────────────────────
+
 fn decode_stellar_address(address: &str) -> anyhow::Result<[u8; 32]> {
     stellar_strkey::ed25519::PublicKey::from_string(address)
         .map(|pk| pk.0)
         .map_err(|e| anyhow!("invalid Stellar address: {e}"))
 }
 
-/// Decodes a Stellar C... (contract) address to the 32-byte contract hash.
 fn decode_stellar_contract_address(address: &str) -> anyhow::Result<[u8; 32]> {
     stellar_strkey::Contract::from_string(address)
         .map(|c| c.0)
         .map_err(|e| anyhow!("invalid Stellar contract address: {e}"))
 }
 
+// ── tests ─────────────────────────────────────────────────────────────────────
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn build_test_tx(source_address: &str, contract_address: &str) -> Vec<u8> {
-        build_unsigned_tx(source_address, contract_address, 100, 1, &[], 0, 0).unwrap()
+        build_base_tx(source_address, contract_address, 100, 1, &[], 0, 0).unwrap()
     }
 
     #[test]
@@ -238,7 +396,7 @@ mod tests {
     }
 
     #[test]
-    fn test_build_unsigned_tx_produces_output() {
+    fn test_build_base_tx_produces_output() {
         let source_address = stellar_strkey::ed25519::PublicKey([0u8; 32]).to_string();
         let contract_address = stellar_strkey::Contract([0xABu8; 32]).to_string();
 
@@ -247,7 +405,7 @@ mod tests {
             ("CS:ETH-USD".to_string(), 3500000000000u64),
         ];
 
-        let tx = build_unsigned_tx(
+        let tx = build_base_tx(
             &source_address,
             &contract_address,
             100,
@@ -261,20 +419,21 @@ mod tests {
         assert!(!tx.is_empty());
         let decoded = Transaction::from_xdr(&tx, Limits::none()).unwrap();
         assert_eq!(decoded.fee, 100);
-        assert_eq!(decoded.seq_num, SequenceNumber(42));
-        assert!(matches!(decoded.cond, Preconditions::None));
+        // sequence is stored as current+1
+        assert_eq!(decoded.seq_num, SequenceNumber(43));
+        assert!(matches!(decoded.cond, Preconditions::Time(_)));
         assert!(matches!(decoded.ext, TransactionExt::V0));
     }
 
     #[test]
-    fn test_build_unsigned_tx_deterministic() {
+    fn test_build_base_tx_deterministic() {
         let source_address = stellar_strkey::ed25519::PublicKey([0u8; 32]).to_string();
         let contract_address = stellar_strkey::Contract([0xABu8; 32]).to_string();
         let signals = vec![("CS:BTC-USD".to_string(), 100u64)];
 
-        let tx1 = build_unsigned_tx(&source_address, &contract_address, 100, 1, &signals, 1000, 1)
+        let tx1 = build_base_tx(&source_address, &contract_address, 100, 1, &signals, 1000, 1)
             .unwrap();
-        let tx2 = build_unsigned_tx(&source_address, &contract_address, 100, 1, &signals, 1000, 1)
+        let tx2 = build_base_tx(&source_address, &contract_address, 100, 1, &signals, 1000, 1)
             .unwrap();
 
         assert_eq!(tx1, tx2);
