@@ -424,7 +424,7 @@ impl FkmsService for Server {
 
                 // Step 2 – simulate to obtain SorobanTransactionData and resource fee.
                 let (soroban_data, min_resource_fee) =
-                    soroban::simulate_transaction(&signer_payload.rpc_url, &base_tx)
+                    soroban::simulate_transaction(&signer_payload.rpc_urls, &base_tx)
                         .await
                         .map_err(|e| {
                             error!("simulateTransaction failed: {:?}", e);

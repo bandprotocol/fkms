@@ -127,32 +127,12 @@ pub fn build_base_tx(
     Ok(tx)
 }
 
-/// Simulates `base_tx_xdr` against `rpc_url` and returns the
+/// Simulates `base_tx` against a single `rpc_url` and returns the
 /// `SorobanTransactionData` plus the minimum resource fee reported by the node.
-pub async fn simulate_transaction(
+async fn simulate_transaction_single(
     rpc_url: &str,
-    base_tx: &Transaction,
+    envelope_b64: &str,
 ) -> anyhow::Result<(SorobanTransactionData, i64)> {
-    let base_tx_xdr = base_tx
-        .to_xdr(Limits::none())
-        .map_err(|e| anyhow!("failed to encode transaction XDR: {e}"))?;
-
-    // Wrap the bare Transaction in an unsigned envelope for the RPC call.
-    let tx = Transaction::from_xdr(base_tx_xdr, Limits::none())
-        .map_err(|e| anyhow!("failed to decode tx for simulation: {e}"))?;
-
-    let envelope = TransactionEnvelope::Tx(TransactionV1Envelope {
-        tx,
-        signatures: vec![]
-            .try_into()
-            .map_err(|_| anyhow!("failed to build empty signatures for simulation"))?,
-    });
-
-    let envelope_xdr = envelope
-        .to_xdr(Limits::none())
-        .map_err(|e| anyhow!("failed to encode envelope for simulation: {e}"))?;
-    let envelope_b64 = general_purpose::STANDARD.encode(&envelope_xdr);
-
     let body = serde_json::json!({
         "jsonrpc": "2.0",
         "id": 1,
@@ -220,6 +200,61 @@ pub async fn simulate_transaction(
     };
 
     Ok((soroban_data, min_resource_fee))
+}
+
+/// Simulates `base_tx` against all `rpc_urls` concurrently and returns the
+/// result from whichever node responds successfully first.
+pub async fn simulate_transaction(
+    rpc_urls: &[String],
+    base_tx: &Transaction,
+) -> anyhow::Result<(SorobanTransactionData, i64)> {
+    if rpc_urls.is_empty() {
+        return Err(anyhow!("rpc_urls must not be empty"));
+    }
+
+    let base_tx_xdr = base_tx
+        .to_xdr(Limits::none())
+        .map_err(|e| anyhow!("failed to encode transaction XDR: {e}"))?;
+
+    // Wrap the bare Transaction in an unsigned envelope for the RPC call.
+    let tx = Transaction::from_xdr(base_tx_xdr, Limits::none())
+        .map_err(|e| anyhow!("failed to decode tx for simulation: {e}"))?;
+
+    let envelope = TransactionEnvelope::Tx(TransactionV1Envelope {
+        tx,
+        signatures: vec![]
+            .try_into()
+            .map_err(|_| anyhow!("failed to build empty signatures for simulation"))?,
+    });
+
+    let envelope_xdr = envelope
+        .to_xdr(Limits::none())
+        .map_err(|e| anyhow!("failed to encode envelope for simulation: {e}"))?;
+    let envelope_b64 = general_purpose::STANDARD.encode(&envelope_xdr);
+
+    let (tx, mut rx) = tokio::sync::mpsc::channel(rpc_urls.len());
+
+    for url in rpc_urls {
+        let tx = tx.clone();
+        let url = url.clone();
+        let envelope_b64 = envelope_b64.clone();
+        tokio::spawn(async move {
+            let result = simulate_transaction_single(&url, &envelope_b64).await;
+            // Ignore send errors – receiver may have already got a result.
+            let _ = tx.send(result).await;
+        });
+    }
+    // Drop the original sender so the channel closes when all tasks finish.
+    drop(tx);
+
+    let mut last_err = anyhow!("all rpc_urls failed");
+    while let Some(result) = rx.recv().await {
+        match result {
+            Ok(val) => return Ok(val),
+            Err(e) => last_err = e,
+        }
+    }
+    Err(last_err)
 }
 
 /// Builds the final unsigned transaction with `TransactionExt::V1` using the
