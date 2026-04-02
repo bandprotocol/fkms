@@ -5,8 +5,10 @@ use stellar_xdr::curr::{
     AccountId, ContractId, DecoratedSignature, Hash, HostFunction, InvokeContractArgs,
     InvokeHostFunctionOp, Limits, Memo, MuxedAccount, Operation, OperationBody, Preconditions,
     PublicKey as XdrPublicKey, ReadXdr, ScAddress, ScSymbol, ScVal, ScVec, SequenceNumber,
-    Signature, SignatureHint, SorobanTransactionData, TimeBounds, TimePoint, Transaction,
-    TransactionEnvelope, TransactionExt, TransactionV1Envelope, Uint256, VecM, WriteXdr,
+    Signature, SignatureHint, SorobanAuthorizationEntry, SorobanAuthorizedFunction,
+    SorobanAuthorizedInvocation, SorobanCredentials, SorobanTransactionData, TimeBounds, TimePoint,
+    Transaction, TransactionEnvelope, TransactionExt, TransactionV1Envelope, Uint256, VecM,
+    WriteXdr,
 };
 
 const TX_TIMEOUT_SECS: u64 = 300;
@@ -45,19 +47,31 @@ fn build_signal_vals(signals: &[(String, u64)]) -> anyhow::Result<Vec<ScVal>> {
 }
 
 fn build_invoke_op(contract_hash: [u8; 32], args: VecM<ScVal>) -> anyhow::Result<Operation> {
+    let invoke_args = InvokeContractArgs {
+        contract_address: ScAddress::Contract(ContractId(Hash(contract_hash))),
+        function_name: ScSymbol(
+            "relay"
+                .try_into()
+                .map_err(|_| anyhow!("invalid function name"))?,
+        ),
+        args,
+    };
+
+    let auth_entry = SorobanAuthorizationEntry {
+        credentials: SorobanCredentials::SourceAccount,
+        root_invocation: SorobanAuthorizedInvocation {
+            function: SorobanAuthorizedFunction::ContractFn(invoke_args.clone()),
+            sub_invocations: vec![]
+                .try_into()
+                .map_err(|_| anyhow!("failed to build sub_invocations"))?,
+        },
+    };
+
     Ok(Operation {
         source_account: None,
         body: OperationBody::InvokeHostFunction(InvokeHostFunctionOp {
-            host_function: HostFunction::InvokeContract(InvokeContractArgs {
-                contract_address: ScAddress::Contract(ContractId(Hash(contract_hash))),
-                function_name: ScSymbol(
-                    "relay"
-                        .try_into()
-                        .map_err(|_| anyhow!("invalid function name"))?,
-                ),
-                args,
-            }),
-            auth: vec![]
+            host_function: HostFunction::InvokeContract(invoke_args),
+            auth: vec![auth_entry]
                 .try_into()
                 .map_err(|_| anyhow!("failed to build auth vec"))?,
         }),
