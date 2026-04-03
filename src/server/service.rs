@@ -17,7 +17,6 @@ use crate::proto::fkms::v1::{
 };
 use crate::server::Server;
 use crate::server::utils::filter_usd_signal;
-use base64::{Engine as _, engine::general_purpose};
 use k256::sha2::Sha512;
 use sha3::{Digest, Sha3_256};
 use std::collections::HashMap;
@@ -453,10 +452,9 @@ impl FkmsService for Server {
                             error!("failed to encode signed soroban envelope: {:?}", e);
                             Status::internal(format!("Failed to encode signed envelope: {e}"))
                         })?;
-                        let tx_blob_b64 = general_purpose::STANDARD.encode(&tx_blob).into_bytes();
 
                         info!("successfully signed soroban transaction");
-                        Ok(Response::new(SignSorobanResponse { tx_blob_b64 }))
+                        Ok(Response::new(SignSorobanResponse { tx_blob }))
                     }
                     Err(e) => {
                         error!("failed to sign soroban transaction: {:?}", e);

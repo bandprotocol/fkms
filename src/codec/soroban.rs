@@ -262,23 +262,14 @@ pub async fn simulate_transaction(
 
 /// Builds the final unsigned transaction with `TransactionExt::V1` using the
 /// `SorobanTransactionData` returned by simulation.
-///
-/// `base_fee`       – user-configured inclusion fee (stroops, typically 100)
-/// `min_resource_fee` – from `simulate_transaction`; added to `base_fee` to
-///                      produce the transaction's total fee field.
 pub fn build_unsigned_tx(
     tx: &mut Transaction,
     soroban_data: SorobanTransactionData,
     min_resource_fee: i64,
 ) -> anyhow::Result<Vec<u8>> {
-    let base_fee = tx.fee;
+    tx.fee += u32::try_from(min_resource_fee)
+        .map_err(|_| anyhow!("fee overflow: min_resource_fee={min_resource_fee}"))?;
 
-    // total fee = inclusion fee + resource fee (both are required by the network).
-    let total_fee = u32::try_from(base_fee as i64 + min_resource_fee).map_err(|_| {
-        anyhow!("fee overflow: base_fee={base_fee} + min_resource_fee={min_resource_fee}")
-    })?;
-
-    tx.fee = total_fee;
     tx.ext = TransactionExt::V1(soroban_data);
 
     tx.to_xdr(Limits::none())
@@ -304,7 +295,7 @@ pub fn encode_signed_envelope(
     unsigned_tx: &[u8],
     public_key: &[u8],
     signature: &[u8],
-) -> anyhow::Result<Vec<u8>> {
+) -> anyhow::Result<String> {
     if public_key.len() != 32 {
         return Err(anyhow!(
             "Ed25519 public key must be 32 bytes, got {}",
@@ -340,7 +331,7 @@ pub fn encode_signed_envelope(
     });
 
     envelope
-        .to_xdr(Limits::none())
+        .to_xdr_base64(Limits::none())
         .map_err(|e| anyhow!("failed to encode envelope XDR: {e}"))
 }
 
@@ -495,7 +486,8 @@ mod tests {
 
         let envelope = encode_signed_envelope(&unsigned_tx, &public_key, &signature).unwrap();
 
-        let decoded = TransactionEnvelope::from_xdr(&envelope, Limits::none()).unwrap();
+        let envelope_bytes = general_purpose::STANDARD.decode(&envelope).unwrap();
+        let decoded = TransactionEnvelope::from_xdr(&envelope_bytes, Limits::none()).unwrap();
         match decoded {
             TransactionEnvelope::Tx(env) => {
                 assert_eq!(env.signatures.len(), 1);
