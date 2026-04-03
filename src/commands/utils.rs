@@ -79,7 +79,7 @@ fn derive_credential_from_mnemonic(
     scheme: DerivationScheme,
 ) -> anyhow::Result<Vec<u8>> {
     match scheme {
-        DerivationScheme::Slip010 => derive_slip010_ed25519_key(&mnemonic, coin_type, account),
+        DerivationScheme::Slip010 => derive_slip010_ed25519_key(&mnemonic, coin_type, index),
         DerivationScheme::Bip32 => {
             let hd_path = format!("m/44'/{coin_type}'/{account}'/{index}");
             let signer = MnemonicBuilder::<English>::default()
@@ -97,7 +97,7 @@ fn derive_credential_from_mnemonic(
 fn derive_slip010_ed25519_key(
     mnemonic_phrase: &str,
     coin_type: u32,
-    account: u32,
+    index: u32,
 ) -> anyhow::Result<Vec<u8>> {
     // BIP39: mnemonic -> 64-byte seed (PBKDF2-HMAC-SHA512)
     let mnemonic: Mnemonic = mnemonic_phrase
@@ -118,7 +118,7 @@ fn derive_slip010_ed25519_key(
 
     // Hardened child derivation for m/44'/{coin_type}'/{account}'
     // Ed25519 SLIP-0010 only supports hardened derivation.
-    for component in [44u32, coin_type, account] {
+    for component in [44u32, coin_type, index] {
         let hardened = component | 0x8000_0000;
         // data = 0x00 || key || hardened_index (big-endian)
         let mut data = Vec::with_capacity(37);

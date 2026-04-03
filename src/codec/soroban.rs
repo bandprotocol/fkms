@@ -10,6 +10,7 @@ use stellar_xdr::curr::{
     Transaction, TransactionEnvelope, TransactionExt, TransactionV1Envelope, Uint256, VecM,
     WriteXdr,
 };
+use tokio::task::JoinSet;
 
 const TX_TIMEOUT_SECS: u64 = 300;
 
@@ -81,8 +82,9 @@ fn build_invoke_op(contract_hash: [u8; 32], args: VecM<ScVal>) -> anyhow::Result
 // ── public API ────────────────────────────────────────────────────────────────
 
 /// Builds an unsigned transaction with `TransactionExt::V0` for use as the
-/// simulation payload.  The sequence is already incremented (+1) so Stellar
-/// accepts it if we ever skip simulation (e.g. in tests).
+/// simulation payload. `sequence` is written into the transaction as provided,
+/// so callers must pass the next valid account sequence number (for example,
+/// the current on-chain sequence plus 1).
 pub fn build_base_tx(
     source_account: &str,
     contract_address: &str,
@@ -147,6 +149,10 @@ async fn simulate_transaction_single(
         .send()
         .await
         .map_err(|e| anyhow!("simulateTransaction request failed: {e}"))?;
+
+    let resp = resp
+        .error_for_status()
+        .map_err(|e| anyhow!("simulateTransaction HTTP error: {e}"))?;
 
     let resp_json: serde_json::Value = resp
         .json()
@@ -232,26 +238,23 @@ pub async fn simulate_transaction(
         .map_err(|e| anyhow!("failed to encode envelope for simulation: {e}"))?;
     let envelope_b64 = general_purpose::STANDARD.encode(&envelope_xdr);
 
-    let (tx, mut rx) = tokio::sync::mpsc::channel(rpc_urls.len());
+    let mut tasks = JoinSet::new();
 
     for url in rpc_urls {
-        let tx = tx.clone();
         let url = url.clone();
         let envelope_b64 = envelope_b64.clone();
-        tokio::spawn(async move {
-            let result = simulate_transaction_single(&url, &envelope_b64).await;
-            // Ignore send errors – receiver may have already got a result.
-            let _ = tx.send(result).await;
-        });
+        tasks.spawn(async move { simulate_transaction_single(&url, &envelope_b64).await });
     }
-    // Drop the original sender so the channel closes when all tasks finish.
-    drop(tx);
 
     let mut last_err = anyhow!("all rpc_urls failed");
-    while let Some(result) = rx.recv().await {
+    while let Some(result) = tasks.join_next().await {
         match result {
-            Ok(val) => return Ok(val),
-            Err(e) => last_err = e,
+            Ok(Ok(val)) => {
+                tasks.abort_all();
+                return Ok(val);
+            }
+            Ok(Err(e)) => last_err = e,
+            Err(e) => last_err = anyhow!("simulation task failed: {e}"),
         }
     }
     Err(last_err)

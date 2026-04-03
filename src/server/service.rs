@@ -456,9 +456,7 @@ impl FkmsService for Server {
                         let tx_blob_b64 = general_purpose::STANDARD.encode(&tx_blob).into_bytes();
 
                         info!("successfully signed soroban transaction");
-                        Ok(Response::new(SignSorobanResponse {
-                            tx_blob: tx_blob_b64,
-                        }))
+                        Ok(Response::new(SignSorobanResponse { tx_blob_b64 }))
                     }
                     Err(e) => {
                         error!("failed to sign soroban transaction: {:?}", e);

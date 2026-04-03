@@ -53,7 +53,8 @@ message SignSorobanRequest {
 }
 
 message SignSorobanResponse {
-  bytes tx_blob = 1;
+  // Base64-encoded Soroban transaction envelope (XDR)
+  bytes tx_blob_b64 = 1;
 }
 
 message GetSignerAddressesRequest {}
