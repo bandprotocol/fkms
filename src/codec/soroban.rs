@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use anyhow::anyhow;
 use base64::{Engine as _, engine::general_purpose};
 use k256::sha2::{Digest, Sha256};
@@ -146,6 +148,7 @@ async fn simulate_transaction_single(
     let resp = client
         .post(rpc_url)
         .json(&body)
+        .timeout(Duration::from_secs(30))
         .send()
         .await
         .map_err(|e| anyhow!("simulateTransaction request failed: {e}"))?;
