@@ -89,7 +89,7 @@ pub fn build_base_tx(
     source_account: &str,
     contract_address: &str,
     fee: u32,
-    sequence: u64,
+    sequence: i64,
     signals: &[(String, u64)],
     resolve_time: u64,
     request_id: u64,
@@ -118,7 +118,7 @@ pub fn build_base_tx(
     let tx = Transaction {
         source_account: MuxedAccount::Ed25519(Uint256(source_key)),
         fee,
-        seq_num: SequenceNumber(sequence as i64),
+        seq_num: SequenceNumber(sequence),
         cond: timeout_precondition(),
         memo: Memo::None,
         operations: vec![op]
