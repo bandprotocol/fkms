@@ -57,6 +57,7 @@ sha2 = "0.10"
 stellar-strkey = "0.0.16"
 stellar-xdr = { version = "26.0.0", features = ["curr", "base64"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+base32 = "0.5.1"
 
 [build-dependencies]
 tonic-build = { version = "0.13.1", features = ["prost"] }

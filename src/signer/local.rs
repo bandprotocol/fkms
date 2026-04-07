@@ -70,7 +70,7 @@ impl LocalSigner {
 
                 if !is_valid_flow_address(&address) {
                     return Err(anyhow::anyhow!(
-                        "Invalid Flow address: {}. Must be 0x followed by 16 hex characters.",
+                        "Invalid Flow address: {}. Must be 16 hex characters, optionally prefixed with 0x.",
                         address
                     ));
                 }
@@ -197,6 +197,7 @@ fn is_valid_flow_address(s: &str) -> bool {
 mod test {
     use super::*;
     use crate::signer::Signer;
+    use base32;
     use k256::sha2::{Digest, Sha512};
     use sha3::Keccak256;
 
@@ -240,6 +241,35 @@ mod test {
         assert_eq!(signature.len(), 64);
     }
 
+    #[tokio::test]
+    async fn test_sign_ed25519_deterministic() {
+        let pk = hex::decode("9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae3d55")
+            .unwrap();
+        let signer = LocalSigner::new(&pk, &ChainType::Soroban, None).unwrap();
+        let message = b"deterministic signing test";
+        let sig1 = signer.sign_ed25519(message).await.unwrap();
+        let sig2 = signer.sign_ed25519(message).await.unwrap();
+        assert_eq!(sig1, sig2);
+    }
+
+    #[tokio::test]
+    async fn test_sign_ed25519_produces_valid_signature() {
+        // RFC 8037 test vector seed
+        let pk = hex::decode("9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae3d55")
+            .unwrap();
+        let signer = LocalSigner::new(&pk, &ChainType::Soroban, None).unwrap();
+        let message = b"hello soroban";
+        let signature_bytes = signer.sign_ed25519(message).await.unwrap();
+        assert_eq!(signature_bytes.len(), 64);
+
+        use ed25519_dalek::{Signature, VerifyingKey};
+        let vk_bytes: [u8; 32] = signer.public_key().try_into().unwrap();
+        let vk = VerifyingKey::from_bytes(&vk_bytes).unwrap();
+        let sig_arr: [u8; 64] = signature_bytes.as_slice().try_into().unwrap();
+        let sig = Signature::from_bytes(&sig_arr);
+        vk.verify_strict(message, &sig).unwrap();
+    }
+
     #[test]
     fn test_address_generation_evm() {
         let pk = hex::decode("d430736144cbe3c083b22b8b5975eef970bf04336dda98748bbef1a3e5e5713a")
@@ -272,6 +302,20 @@ mod test {
         let pk = hex::decode("c9afa9d845ba75166b5c215767b1d6934e50c3db36e89b127b8a622b120f6721")
             .unwrap();
         assert!(LocalSigner::new(&pk, &ChainType::Flow, None).is_err());
+    }
+
+    #[test]
+    fn test_address_generation_soroban() {
+        let pk = base32::decode(
+            base32::Alphabet::Rfc4648 { padding: false },
+            "SBH2O4SMUKNXIDBDF33DH2WO2G6K2ITAEE4LF4QRQ4ZOKLTXKTQVXSXH",
+        )
+        .unwrap();
+        let signer = LocalSigner::new(&pk[1..33], &ChainType::Soroban, None).unwrap();
+        assert_eq!(
+            signer.address(),
+            "GAO3EMICCMT746DHGEDA3RQGMIQGGIBW2IUSPT6TACD43BKDAGZIXWWT"
+        );
     }
 
     #[test]

@@ -81,7 +81,7 @@ fn derive_credential_from_mnemonic(
     match scheme {
         DerivationScheme::Slip010 => derive_slip010_ed25519_key(&mnemonic, coin_type, index),
         DerivationScheme::Bip32 => {
-            let hd_path = format!("m/44'/{coin_type}'/{account}'/{index}");
+            let hd_path = format!("m/44'/{coin_type}'/{account}'/0/{index}");
             let signer = MnemonicBuilder::<English>::default()
                 .phrase(mnemonic)
                 .derivation_path(&hd_path)?

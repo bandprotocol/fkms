@@ -270,8 +270,13 @@ pub fn build_unsigned_tx(
     soroban_data: SorobanTransactionData,
     min_resource_fee: i64,
 ) -> anyhow::Result<Vec<u8>> {
-    tx.fee += u32::try_from(min_resource_fee)
+    let min_resource_fee = u32::try_from(min_resource_fee)
         .map_err(|_| anyhow!("fee overflow: min_resource_fee={min_resource_fee}"))?;
+
+    tx.fee = tx
+        .fee
+        .checked_add(min_resource_fee)
+        .ok_or_else(|| anyhow!("fee overflow: tx.fee + min_resource_fee"))?;
 
     tx.ext = TransactionExt::V1(soroban_data);
 
@@ -518,5 +523,97 @@ mod tests {
 
         let result = encode_signed_envelope(&unsigned_tx, &[0; 32], &[0; 63]);
         assert!(result.is_err());
+    }
+
+    // ── build_unsigned_tx ─────────────────────────────────────────────────────
+
+    use stellar_xdr::curr::{LedgerFootprint, SorobanResources, SorobanTransactionDataExt};
+
+    fn minimal_soroban_data() -> SorobanTransactionData {
+        SorobanTransactionData {
+            ext: SorobanTransactionDataExt::V0,
+            resources: SorobanResources {
+                footprint: LedgerFootprint {
+                    read_only: vec![].try_into().unwrap(),
+                    read_write: vec![].try_into().unwrap(),
+                },
+                instructions: 0,
+                disk_read_bytes: 0,
+                write_bytes: 0,
+            },
+            resource_fee: 0,
+        }
+    }
+
+    #[test]
+    fn test_build_unsigned_tx_adds_min_resource_fee() {
+        let source_address = stellar_strkey::ed25519::PublicKey([0u8; 32]).to_string();
+        let contract_address = stellar_strkey::Contract([0xABu8; 32]).to_string();
+        let mut tx = build_base_tx(&source_address, &contract_address, 100, 1, &[], 0, 0).unwrap();
+        build_unsigned_tx(&mut tx, minimal_soroban_data(), 50).unwrap();
+        assert_eq!(tx.fee, 150);
+    }
+
+    #[test]
+    fn test_build_unsigned_tx_sets_v1_ext() {
+        let source_address = stellar_strkey::ed25519::PublicKey([0u8; 32]).to_string();
+        let contract_address = stellar_strkey::Contract([0xABu8; 32]).to_string();
+        let mut tx = build_base_tx(&source_address, &contract_address, 100, 1, &[], 0, 0).unwrap();
+        build_unsigned_tx(&mut tx, minimal_soroban_data(), 0).unwrap();
+        assert!(matches!(tx.ext, TransactionExt::V1(_)));
+    }
+
+    #[test]
+    fn test_build_unsigned_tx_fee_overflow_errors() {
+        let source_address = stellar_strkey::ed25519::PublicKey([0u8; 32]).to_string();
+        let contract_address = stellar_strkey::Contract([0xABu8; 32]).to_string();
+        // base fee = u32::MAX; adding any positive min_resource_fee must overflow
+        let mut tx =
+            build_base_tx(&source_address, &contract_address, u32::MAX, 1, &[], 0, 0).unwrap();
+        assert!(build_unsigned_tx(&mut tx, minimal_soroban_data(), 1).is_err());
+    }
+
+    // ── full Ed25519 signing flow ─────────────────────────────────────────────
+
+    #[test]
+    fn test_full_ed25519_signing_flow() {
+        use ed25519_dalek::{Signature, Signer as _, SigningKey, VerifyingKey};
+
+        let key_bytes = [0x42u8; 32];
+        let signing_key = SigningKey::from_bytes(&key_bytes);
+        let verifying_key: VerifyingKey = signing_key.verifying_key();
+        let public_key = verifying_key.to_bytes().to_vec();
+
+        let source_address =
+            stellar_strkey::ed25519::PublicKey(verifying_key.to_bytes()).to_string();
+        let contract_address = stellar_strkey::Contract([0xABu8; 32]).to_string();
+
+        let mut tx = build_base_tx(&source_address, &contract_address, 100, 1, &[], 0, 0).unwrap();
+        let unsigned_tx = build_unsigned_tx(&mut tx, minimal_soroban_data(), 50).unwrap();
+
+        let network_passphrase = "Test SDF Network ; September 2015";
+        let tx_hash = compute_tx_hash(network_passphrase, &unsigned_tx);
+        assert_eq!(tx_hash.len(), 32);
+
+        let signature: Signature = signing_key.sign(&tx_hash);
+        let signature_bytes = signature.to_bytes().to_vec();
+
+        let envelope_b64 =
+            encode_signed_envelope(&unsigned_tx, &public_key, &signature_bytes).unwrap();
+
+        // Decode the envelope and verify the signature
+        let envelope_bytes = general_purpose::STANDARD.decode(&envelope_b64).unwrap();
+        let decoded = TransactionEnvelope::from_xdr(&envelope_bytes, Limits::none()).unwrap();
+        match decoded {
+            TransactionEnvelope::Tx(env) => {
+                assert_eq!(env.signatures.len(), 1);
+                // hint = last 4 bytes of the public key
+                assert_eq!(env.signatures[0].hint.0, public_key[28..32]);
+                let sig_arr: [u8; 64] = env.signatures[0].signature.as_slice().try_into().unwrap();
+                let sig = Signature::from_bytes(&sig_arr);
+                verifying_key.verify_strict(&tx_hash, &sig).unwrap();
+            }
+            _ => panic!("expected TransactionEnvelope::Tx"),
+        }
     }
 }
