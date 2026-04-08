@@ -2,7 +2,8 @@ use crate::config::signer::local::ChainType;
 use crate::signer::signature::Signature;
 use crate::signer::signature::ecdsa::DerSignature;
 use crate::signer::{
-    Signer, public_key_to_evm_address, public_key_to_icon_address, public_key_to_xrpl_address,
+    Signer, public_key_to_evm_address, public_key_to_icon_address, public_key_to_secret_address,
+    public_key_to_xrpl_address,
 };
 use k256::ecdsa::SigningKey as EcdsaSigningKey;
 use k256::ecdsa::signature::hazmat::PrehashSigner;
@@ -11,6 +12,7 @@ use k256::ecdsa::signature::hazmat::PrehashSigner;
 pub struct LocalSigner {
     signing_key: SigningKey,
     public_key: Vec<u8>,
+    private_key: Vec<u8>,
     address: String,
     chain_type: ChainType,
 }
@@ -40,11 +42,18 @@ impl LocalSigner {
                 let address = public_key_to_icon_address(&public_key)?;
                 (SigningKey::Ecdsa(signing_key), public_key, address)
             }
+            ChainType::Secret => {
+                let signing_key = EcdsaSigningKey::from_slice(private_key)?;
+                let public_key = create_public_key(&signing_key, true);
+                let address = public_key_to_secret_address(&public_key)?;
+                (SigningKey::Ecdsa(signing_key), public_key, address)
+            }
         };
 
         Ok(LocalSigner {
             signing_key,
             public_key,
+            private_key: private_key.to_vec(),
             address,
             chain_type: chain_type.clone(),
         })
@@ -75,6 +84,7 @@ impl Signer for LocalSigner {
             ChainType::Evm => self.sign_ecdsa(message).await,
             ChainType::Xrpl => self.sign_der(message).await,
             ChainType::Icon => self.sign_ecdsa(message).await,
+            ChainType::Secret => self.sign_ecdsa(message).await,
         }
     }
 
@@ -88,6 +98,10 @@ impl Signer for LocalSigner {
 
     fn chain_type(&self) -> &ChainType {
         &self.chain_type
+    }
+
+    fn private_key(&self) -> Option<&[u8]> {
+        Some(&self.private_key)
     }
 }
 

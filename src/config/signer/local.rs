@@ -30,4 +30,5 @@ pub enum ChainType {
     Evm,
     Xrpl,
     Icon,
+    Secret,
 }
