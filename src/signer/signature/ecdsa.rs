@@ -3,6 +3,7 @@ use k256::ecdsa;
 
 pub type EcdsaSignature = (ecdsa::Signature, ecdsa::RecoveryId);
 pub type DerSignature = ecdsa::DerSignature;
+pub type P256Signature = p256::ecdsa::Signature;
 
 impl Signature for EcdsaSignature {
     fn into_vec(self) -> Vec<u8> {
@@ -18,5 +19,11 @@ impl Signature for EcdsaSignature {
 impl Signature for DerSignature {
     fn into_vec(self) -> Vec<u8> {
         self.as_bytes().to_vec()
+    }
+}
+
+impl Signature for P256Signature {
+    fn into_vec(self) -> Vec<u8> {
+        self.to_bytes().to_vec()
     }
 }
