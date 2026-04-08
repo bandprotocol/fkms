@@ -500,7 +500,15 @@ mod tests {
         assert_ne!(ct2, ct3, "Ciphertexts should differ with both different");
 
         // The first 16 bytes are the SIV tag; they must differ
-        assert_ne!(&ct1[..16], &ct2[..16], "SIV tags should differ with different nonce");
-        assert_ne!(&ct1[..16], &ct3[..16], "SIV tags should differ with different pubkey");
+        assert_ne!(
+            &ct1[..16],
+            &ct2[..16],
+            "SIV tags should differ with different nonce"
+        );
+        assert_ne!(
+            &ct1[..16],
+            &ct3[..16],
+            "SIV tags should differ with different pubkey"
+        );
     }
 }
