@@ -7,6 +7,7 @@ service FkmsService {
   rpc SignXrpl(SignXrplRequest) returns (SignXrplResponse);
   rpc SignIcon(SignIconRequest) returns (SignIconResponse);
   rpc SignFlow(SignFlowRequest) returns (SignFlowResponse);
+  rpc SignSoroban(SignSorobanRequest) returns (SignSorobanResponse);
   rpc SignSecret(SignSecretRequest) returns (SignSecretResponse);
   rpc GetSignerAddresses(GetSignerAddressesRequest) returns (GetSignerAddressesResponse);
 }
@@ -47,6 +48,16 @@ message SignFlowResponse {
   bytes tx_blob = 1;
 }
 
+message SignSorobanRequest {
+  SorobanSignerPayload signer_payload = 1;
+  Tss tss = 2;
+}
+
+message SignSorobanResponse {
+  // Soroban transaction envelope in base64 format
+  string tx_blob = 1;
+}
+
 message SignSecretRequest {
   SecretSignerPayload signer_payload = 1;
   Tss tss = 2;
@@ -85,6 +96,15 @@ message FlowSignerPayload {
   bytes script = 6;
 }
 
+message SorobanSignerPayload {
+  string source_account = 1;
+  string contract_address = 2;
+  string fee = 3;
+  int64 sequence = 4;
+  string network_passphrase = 5;
+  repeated string rpc_urls = 6;
+}
+
 message SecretSignerPayload {
   string sender = 1;
   string contract_address = 2;
@@ -114,5 +134,6 @@ enum ChainType {
   XRPL = 1;
   ICON = 2;
   FLOW = 3;
-  SECRET = 4;
+  SOROBAN = 4;
+  SECRET = 5;
 }

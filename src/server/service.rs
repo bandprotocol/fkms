@@ -6,6 +6,7 @@ use crate::codec::flow;
 use crate::codec::icon::{
     create_signing_payload as create_icon_signing_payload, encode_tx_for_signing, sign_tx,
 };
+use crate::codec::soroban;
 use crate::codec::tss::decode_tss_message;
 use crate::codec::xrpl::create_signing_payload;
 use crate::codec::xrpl::{encode_for_signing, encode_with_signature};
@@ -15,7 +16,8 @@ use crate::proto::fkms::v1::fkms_service_server::FkmsService;
 use crate::proto::fkms::v1::{
     GetSignerAddressesRequest, GetSignerAddressesResponse, SignEvmRequest, SignEvmResponse,
     SignFlowRequest, SignFlowResponse, SignIconRequest, SignIconResponse, SignSecretRequest,
-    SignSecretResponse, SignXrplRequest, SignXrplResponse, Signers,
+    SignSecretResponse, SignSorobanRequest, SignSorobanResponse, SignXrplRequest, SignXrplResponse,
+    Signers,
 };
 use crate::server::Server;
 use crate::server::utils::filter_usd_signal;
@@ -307,7 +309,7 @@ impl FkmsService for Server {
                     .map_err(|_| Status::invalid_argument("Timestamp must be non-negative"))?;
                 let request_id = tunnel_packet.sequence;
 
-                let payload_rlp: Vec<u8> = flow::build_payload_rlp(
+                let payload_rlp = flow::build_payload_rlp(
                     &signals,
                     &signer_payload.address,
                     signer_payload.compute_limit,
@@ -348,6 +350,124 @@ impl FkmsService for Server {
             }
             None => {
                 warn!("no signer found for {}", signer_payload.address);
+                Err(Status::not_found("Signer not found"))
+            }
+        }
+    }
+
+    #[instrument(skip(self, request))]
+    async fn sign_soroban(
+        &self,
+        request: Request<SignSorobanRequest>,
+    ) -> Result<Response<SignSorobanResponse>, Status> {
+        let sign_soroban_request = request.into_inner();
+
+        let signer_payload = sign_soroban_request.signer_payload.ok_or_else(|| {
+            Status::invalid_argument("signer_payload field is required and cannot be null")
+        })?;
+
+        let tss = sign_soroban_request
+            .tss
+            .ok_or_else(|| Status::invalid_argument("tss field is required and cannot be null"))?;
+
+        // verify tss signature
+        if let Some(verifier) = &self.tss_signature_verifier {
+            verifier
+                .verify_signature(&tss.message, &tss.random_addr, &tss.signature_s)
+                .map_err(|e| {
+                    error!("failed to verify tss message: {:?}", e);
+                    Status::invalid_argument(format!("Failed to verify tss signature: {e}"))
+                })?;
+        }
+
+        // extract prices from tss message
+        let decoded_tss_message = decode_tss_message(&tss.message)
+            .map_err(|e| Status::internal(format!("Failed to decode TSS message: {e}")))?;
+        let tunnel_packet = decoded_tss_message.packet;
+
+        // run pre sign hooks
+        for hook in &self.pre_sign_hooks {
+            hook.call(&tunnel_packet).await?;
+        }
+
+        match self
+            .signers
+            .get(&(ChainType::Soroban, signer_payload.source_account.clone()))
+        {
+            Some(signer) => {
+                let signals: Vec<(String, u64)> = tunnel_packet
+                    .signals
+                    .iter()
+                    .filter_map(filter_usd_signal)
+                    .collect();
+
+                let resolve_time = u64::try_from(tunnel_packet.timestamp)
+                    .map_err(|_| Status::invalid_argument("Timestamp must be non-negative"))?;
+                let request_id = tunnel_packet.sequence;
+
+                let base_fee: u32 = signer_payload
+                    .fee
+                    .parse()
+                    .map_err(|_| Status::invalid_argument("fee must be a valid u32"))?;
+
+                // build a V0 transaction for simulation.
+                let mut base_tx = soroban::build_base_tx(
+                    &signer_payload.source_account,
+                    &signer_payload.contract_address,
+                    base_fee,
+                    signer_payload.sequence,
+                    &signals,
+                    resolve_time,
+                    request_id,
+                )
+                .map_err(|e| {
+                    error!("failed to build soroban base tx: {:?}", e);
+                    Status::internal(format!("Failed to build base transaction: {e}"))
+                })?;
+
+                // Step 2 – simulate to obtain SorobanTransactionData and resource fee.
+                let (soroban_data, min_resource_fee) =
+                    soroban::simulate_transaction(&signer_payload.rpc_urls, &base_tx)
+                        .await
+                        .map_err(|e| {
+                            error!("simulateTransaction failed: {:?}", e);
+                            Status::internal(format!("Failed to simulate transaction: {e}"))
+                        })?;
+
+                // Step 3 – rebuild with V1 ext and sign the final hash.
+                let unsigned_tx =
+                    soroban::build_unsigned_tx(&mut base_tx, soroban_data, min_resource_fee)
+                        .map_err(|e| {
+                            error!("failed to build soroban final tx: {:?}", e);
+                            Status::internal(format!("Failed to build final transaction: {e}"))
+                        })?;
+
+                let tx_hash =
+                    soroban::compute_tx_hash(&signer_payload.network_passphrase, &unsigned_tx);
+
+                match signer.sign(&tx_hash).await {
+                    Ok(signature) => {
+                        let tx_blob = soroban::encode_signed_envelope(
+                            &unsigned_tx,
+                            signer.public_key(),
+                            &signature,
+                        )
+                        .map_err(|e| {
+                            error!("failed to encode signed soroban envelope: {:?}", e);
+                            Status::internal(format!("Failed to encode signed envelope: {e}"))
+                        })?;
+
+                        info!("successfully signed soroban transaction");
+                        Ok(Response::new(SignSorobanResponse { tx_blob }))
+                    }
+                    Err(e) => {
+                        error!("failed to sign soroban transaction: {:?}", e);
+                        Err(Status::internal(format!("Failed to sign message: {e}")))
+                    }
+                }
+            }
+            None => {
+                warn!("no signer found for {}", signer_payload.source_account);
                 Err(Status::not_found("Signer not found"))
             }
         }
@@ -467,6 +587,7 @@ impl FkmsService for Server {
                     ChainType::Xrpl => proto_chain_type::Xrpl,
                     ChainType::Icon => proto_chain_type::Icon,
                     ChainType::Flow => proto_chain_type::Flow,
+                    ChainType::Soroban => proto_chain_type::Soroban,
                     ChainType::Secret => proto_chain_type::Secret,
                 };
                 Signers {

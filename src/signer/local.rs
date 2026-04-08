@@ -8,6 +8,8 @@ use crate::signer::{
 use ecdsa::SignatureSize;
 use ecdsa::hazmat::SignPrimitive;
 use ecdsa::{PrimeCurve, SigningKey as EcdsaSigningKey};
+use ed25519_dalek::Signer as Ed25519Signer;
+use ed25519_dalek::SigningKey as Ed25519SigningKey;
 use elliptic_curve::generic_array::ArrayLength;
 use elliptic_curve::ops::Invert;
 use elliptic_curve::sec1::ToEncodedPoint;
@@ -18,6 +20,7 @@ use k256::ecdsa::SigningKey as K256SigningKey;
 use k256::ecdsa::signature::hazmat::PrehashSigner;
 use k256::elliptic_curve::CurveArithmetic;
 use p256::ecdsa::SigningKey as P256SigningKey;
+use stellar_strkey::Strkey;
 
 pub struct LocalSigner {
     signing_key: SigningKey,
@@ -30,6 +33,7 @@ pub struct LocalSigner {
 pub enum SigningKey {
     EcdsaK256(K256SigningKey),
     EcdsaP256(P256SigningKey),
+    Ed25519(Ed25519SigningKey),
 }
 
 impl LocalSigner {
@@ -61,14 +65,14 @@ impl LocalSigner {
                 let address = address
                     .ok_or_else(|| {
                         anyhow::anyhow!(
-                            "Flow chain type requires address_override in config (Flow addresses are network-assigned)"
+                            "Flow chain type requires address in config (Flow addresses are network-assigned)"
                         )
                     })?
                     .to_string();
 
                 if !is_valid_flow_address(&address) {
                     return Err(anyhow::anyhow!(
-                        "Invalid Flow address override: {}. Must be 0x followed by 16 hex characters.",
+                        "Invalid Flow address: {}. Must be 16 hex characters, optionally prefixed with 0x.",
                         address
                     ));
                 }
@@ -76,6 +80,23 @@ impl LocalSigner {
                 let signing_key = P256SigningKey::from_slice(private_key)?;
                 let public_key = create_ecdsa_public_key(&signing_key, false);
                 (SigningKey::EcdsaP256(signing_key), public_key, address)
+            }
+            ChainType::Soroban => {
+                let key_bytes: [u8; 32] = private_key
+                    .try_into()
+                    .map_err(|_| anyhow::anyhow!("Ed25519 private key must be exactly 32 bytes"))?;
+                let signing_key = Ed25519SigningKey::from_bytes(&key_bytes);
+                let public_key = signing_key.verifying_key().to_bytes().to_vec();
+                let public_key_address = Strkey::PublicKeyEd25519(
+                    stellar_strkey::ed25519::PublicKey(signing_key.verifying_key().to_bytes()),
+                )
+                .to_string()
+                .to_string();
+                (
+                    SigningKey::Ed25519(signing_key),
+                    public_key,
+                    public_key_address,
+                )
             }
             ChainType::Secret => {
                 let signing_key = EcdsaSigningKey::from_slice(private_key)?;
@@ -124,6 +145,16 @@ impl LocalSigner {
             _ => Err(anyhow::anyhow!("Wrong signing key type for P-256 ECDSA")),
         }
     }
+
+    async fn sign_ed25519(&self, message: &[u8]) -> anyhow::Result<Vec<u8>> {
+        match &self.signing_key {
+            SigningKey::Ed25519(signing_key) => {
+                let signature = signing_key.sign(message);
+                Ok(signature.into_vec())
+            }
+            _ => Err(anyhow::anyhow!("Wrong signing key type for Ed25519")),
+        }
+    }
 }
 
 #[async_trait::async_trait]
@@ -134,6 +165,7 @@ impl Signer for LocalSigner {
             ChainType::Xrpl => self.sign_der(message).await,
             ChainType::Icon => self.sign_ecdsa(message).await,
             ChainType::Flow => self.sign_p256(message).await,
+            ChainType::Soroban => self.sign_ed25519(message).await,
             ChainType::Secret => self.sign_ecdsa(message).await,
         }
     }
@@ -179,6 +211,7 @@ fn is_valid_flow_address(s: &str) -> bool {
 mod test {
     use super::*;
     use crate::signer::Signer;
+    use base32;
     use k256::sha2::{Digest, Sha512};
     use sha3::Keccak256;
 
@@ -222,6 +255,35 @@ mod test {
         assert_eq!(signature.len(), 64);
     }
 
+    #[tokio::test]
+    async fn test_sign_ed25519_deterministic() {
+        let pk = hex::decode("9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae3d55")
+            .unwrap();
+        let signer = LocalSigner::new(&pk, &ChainType::Soroban, None).unwrap();
+        let message = b"deterministic signing test";
+        let sig1 = signer.sign_ed25519(message).await.unwrap();
+        let sig2 = signer.sign_ed25519(message).await.unwrap();
+        assert_eq!(sig1, sig2);
+    }
+
+    #[tokio::test]
+    async fn test_sign_ed25519_produces_valid_signature() {
+        // RFC 8037 test vector seed
+        let pk = hex::decode("9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae3d55")
+            .unwrap();
+        let signer = LocalSigner::new(&pk, &ChainType::Soroban, None).unwrap();
+        let message = b"hello soroban";
+        let signature_bytes = signer.sign_ed25519(message).await.unwrap();
+        assert_eq!(signature_bytes.len(), 64);
+
+        use ed25519_dalek::{Signature, VerifyingKey};
+        let vk_bytes: [u8; 32] = signer.public_key().try_into().unwrap();
+        let vk = VerifyingKey::from_bytes(&vk_bytes).unwrap();
+        let sig_arr: [u8; 64] = signature_bytes.as_slice().try_into().unwrap();
+        let sig = Signature::from_bytes(&sig_arr);
+        vk.verify_strict(message, &sig).unwrap();
+    }
+
     #[test]
     fn test_address_generation_evm() {
         let pk = hex::decode("d430736144cbe3c083b22b8b5975eef970bf04336dda98748bbef1a3e5e5713a")
@@ -254,6 +316,20 @@ mod test {
         let pk = hex::decode("c9afa9d845ba75166b5c215767b1d6934e50c3db36e89b127b8a622b120f6721")
             .unwrap();
         assert!(LocalSigner::new(&pk, &ChainType::Flow, None).is_err());
+    }
+
+    #[test]
+    fn test_address_generation_soroban() {
+        let pk = base32::decode(
+            base32::Alphabet::Rfc4648 { padding: false },
+            "SBH2O4SMUKNXIDBDF33DH2WO2G6K2ITAEE4LF4QRQ4ZOKLTXKTQVXSXH",
+        )
+        .unwrap();
+        let signer = LocalSigner::new(&pk[1..33], &ChainType::Soroban, None).unwrap();
+        assert_eq!(
+            signer.address(),
+            "GAO3EMICCMT746DHGEDA3RQGMIQGGIBW2IUSPT6TACD43BKDAGZIXWWT"
+        );
     }
 
     #[test]
