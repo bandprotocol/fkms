@@ -309,6 +309,7 @@ impl FkmsService for Server {
                     .map_err(|_| Status::invalid_argument("Timestamp must be non-negative"))?;
                 let request_id = tunnel_packet.sequence;
 
+                let script = flow::build_script(&signer_payload.contract_address);
                 let payload_rlp = flow::build_payload_rlp(
                     &signals,
                     &signer_payload.address,
@@ -316,7 +317,7 @@ impl FkmsService for Server {
                     &signer_payload.block_id,
                     signer_payload.key_index,
                     signer_payload.sequence,
-                    &signer_payload.script,
+                    &script,
                     resolve_time,
                     request_id,
                 )

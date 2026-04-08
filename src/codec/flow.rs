@@ -7,6 +7,32 @@ use sha3::{Digest, Sha3_256};
 const FLOW_TRANSACTION_DOMAIN_TAG: &[u8] =
     b"FLOW-V0.0-transaction\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00";
 
+const RELAY_SCRIPT_TEMPLATE: &str = r#"
+    import BandOracle from {contract}
+
+    transaction (symbolsRates: {String: UInt64}, resolveTime: UInt64, requestID: UInt64) {
+        let relayRef: &BandOracle.Relay
+
+        prepare (acct: auth(BorrowValue)&Account){
+            // Get a reference to the relayer resource from storage
+            self.relayRef = acct.storage.borrow<&BandOracle.Relay>(from: BandOracle.RelayStoragePath) ??
+                panic("Cannot borrow reference to relay resource")
+        }
+
+        execute {
+            // Call the relayRates function exposed by the relayer resource
+            self.relayRef.relayRates(symbolsRates: symbolsRates, resolveTime: resolveTime, requestID: requestID)
+        }
+    }
+"#;
+
+/// Builds the Cadence relay script with the given contract address substituted in.
+pub fn build_script(contract_address: &str) -> Vec<u8> {
+    RELAY_SCRIPT_TEMPLATE
+        .replace("{contract}", contract_address)
+        .into_bytes()
+}
+
 // Builds the RLP-encoded transaction payload used for signing.
 #[allow(clippy::too_many_arguments)]
 pub fn build_payload_rlp(
