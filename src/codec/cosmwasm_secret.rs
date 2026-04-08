@@ -189,12 +189,6 @@ fn offline_encrypt_secret_message(
     plaintext: &[u8],
     receiver_pubkey: &PublicKey,
 ) -> Result<Vec<u8>> {
-    // 1) Generate txSender priv/pub
-    // 2) Generate nonce(32)
-    // 3) hkdf(txEncryptionIkm = X25519(txSenderPrivKey, receiverPubKey) || nonce, hkdfSalt)
-    // 4) encryptData(AES-CMAC-SIV, aesEncryptionKey, txSenderPubKey, plaintext, nonce)
-    // 5) output = nonce(32) || txSenderPubKey(32) || ciphertext
-
     let mut tx_sender_privkey = [0u8; 32];
     rand::thread_rng().fill_bytes(&mut tx_sender_privkey);
     let tx_sender_static = StaticSecret::from(tx_sender_privkey);
@@ -216,7 +210,8 @@ fn offline_encrypt_secret_message(
 
     let aes_encryption_key = okm; // 32 bytes
 
-    let ciphertext = encrypt_data_cmac_siv(&aes_encryption_key, plaintext)?;
+    let associated_data = [&nonce[..], tx_sender_pubkey.as_bytes()];
+    let ciphertext = encrypt_data_cmac_siv(&aes_encryption_key, plaintext, &associated_data)?;
 
     let mut out = Vec::with_capacity(32 + 32 + ciphertext.len());
     out.extend_from_slice(&nonce);
@@ -225,14 +220,16 @@ fn offline_encrypt_secret_message(
     Ok(out)
 }
 
-fn encrypt_data_cmac_siv(aes_encryption_key: &[u8; 32], plaintext: &[u8]) -> Result<Vec<u8>> {
+fn encrypt_data_cmac_siv(
+    aes_encryption_key: &[u8; 32],
+    plaintext: &[u8],
+    associated_data: &[&[u8]],
+) -> Result<Vec<u8>> {
     let (cmac_key, ctr_key) = aes_encryption_key.split_at(16);
     let cmac_key: &[u8; 16] = cmac_key.try_into().expect("16 bytes");
     let ctr_key: &[u8; 16] = ctr_key.try_into().expect("16 bytes");
 
-    // Associated data items list contains a single empty slice.
-    let associated_data_items: Vec<&[u8]> = vec![&[]];
-    let siv_tag = s2v_aes_cmac_siv(cmac_key, &associated_data_items, plaintext)?;
+    let siv_tag = s2v_aes_cmac_siv(cmac_key, associated_data, plaintext)?;
 
     // SIV => CTR IV with top bits cleared in last two 32-bit words.
     let mut ctr_iv = siv_tag;
@@ -482,5 +479,28 @@ mod tests {
                 .to_string()
                 .contains("invalid code_hash length")
         );
+    }
+
+    #[test]
+    fn test_siv_associated_data_binding() {
+        let key = [0u8; 32];
+        let plaintext = b"hello world";
+
+        let ad1 = [b"nonce1".as_slice(), b"pubkey1".as_slice()];
+        let ad2 = [b"nonce2".as_slice(), b"pubkey1".as_slice()]; // Different nonce
+        let ad3 = [b"nonce1".as_slice(), b"pubkey2".as_slice()]; // Different pubkey
+
+        let ct1 = encrypt_data_cmac_siv(&key, plaintext, &ad1).unwrap();
+        let ct2 = encrypt_data_cmac_siv(&key, plaintext, &ad2).unwrap();
+        let ct3 = encrypt_data_cmac_siv(&key, plaintext, &ad3).unwrap();
+
+        // Ciphertexts should be different because AD is different
+        assert_ne!(ct1, ct2, "Ciphertexts should differ with different nonce");
+        assert_ne!(ct1, ct3, "Ciphertexts should differ with different pubkey");
+        assert_ne!(ct2, ct3, "Ciphertexts should differ with both different");
+
+        // The first 16 bytes are the SIV tag; they must differ
+        assert_ne!(&ct1[..16], &ct2[..16], "SIV tags should differ with different nonce");
+        assert_ne!(&ct1[..16], &ct3[..16], "SIV tags should differ with different pubkey");
     }
 }
