@@ -1,6 +1,6 @@
 use crate::config::Config;
 use crate::config::signer::local::ChainType;
-use crate::config::signer::local::{DerivationScheme, Encoding, LocalSignerConfig};
+use crate::config::signer::local::{Encoding, LocalSignerConfig};
 use crate::signer::local::LocalSigner;
 use alloy_signer_local::MnemonicBuilder;
 use alloy_signer_local::coins_bip39::English;
@@ -49,13 +49,11 @@ pub fn get_local_signers_from_config(
                 account,
                 index,
                 chain_type,
-                derivation_scheme,
                 address,
             } => {
                 let mnemonic = env::var(env_variable)?;
-                let scheme = derivation_scheme.clone().unwrap_or_default();
                 let pkb = derive_credential_from_mnemonic(
-                    mnemonic, *coin_type, *account, *index, scheme,
+                    mnemonic, *coin_type, *account, *index, chain_type,
                 )?;
                 (
                     chain_type,
@@ -76,11 +74,11 @@ fn derive_credential_from_mnemonic(
     coin_type: u32,
     account: u32,
     index: u32,
-    scheme: DerivationScheme,
+    chain_type: &ChainType,
 ) -> anyhow::Result<Vec<u8>> {
-    match scheme {
-        DerivationScheme::Slip010 => derive_slip010_ed25519_key(&mnemonic, coin_type, index),
-        DerivationScheme::Bip32 => {
+    match chain_type {
+        ChainType::Soroban => derive_slip010_ed25519_key(&mnemonic, coin_type, index),
+        _ => {
             let hd_path = format!("m/44'/{coin_type}'/{account}'/0/{index}");
             let signer = MnemonicBuilder::<English>::default()
                 .phrase(mnemonic)
