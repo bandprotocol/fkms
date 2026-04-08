@@ -1,3 +1,6 @@
+use crate::codec::cosmwasm_secret::{
+    SignSecretTxParams, encrypt_secret_execute_msg, secret_execute_msg_json, sign_secret_tx,
+};
 use crate::codec::evm::decode_tx;
 use crate::codec::flow;
 use crate::codec::icon::{
@@ -12,8 +15,9 @@ use crate::proto::fkms::v1::ChainType as proto_chain_type;
 use crate::proto::fkms::v1::fkms_service_server::FkmsService;
 use crate::proto::fkms::v1::{
     GetSignerAddressesRequest, GetSignerAddressesResponse, SignEvmRequest, SignEvmResponse,
-    SignFlowRequest, SignFlowResponse, SignIconRequest, SignIconResponse, SignSorobanRequest,
-    SignSorobanResponse, SignXrplRequest, SignXrplResponse, Signers,
+    SignFlowRequest, SignFlowResponse, SignIconRequest, SignIconResponse, SignSecretRequest,
+    SignSecretResponse, SignSorobanRequest, SignSorobanResponse, SignXrplRequest, SignXrplResponse,
+    Signers,
 };
 use crate::server::Server;
 use crate::server::utils::filter_usd_signal;
@@ -470,6 +474,100 @@ impl FkmsService for Server {
         }
     }
 
+    #[instrument(skip(self, request))]
+    async fn sign_secret(
+        &self,
+        request: Request<SignSecretRequest>,
+    ) -> Result<Response<SignSecretResponse>, Status> {
+        let sign_secret_request = request.into_inner();
+
+        let signer_payload = sign_secret_request.signer_payload.ok_or_else(|| {
+            Status::invalid_argument("signer_payload field is required and cannot be null")
+        })?;
+        let tss = sign_secret_request
+            .tss
+            .ok_or_else(|| Status::invalid_argument("tss field is required and cannot be null"))?;
+
+        // verify tss signature
+        if let Some(verifier) = &self.tss_signature_verifier {
+            verifier
+                .verify_signature(&tss.message, &tss.random_addr, &tss.signature_s)
+                .map_err(|e| {
+                    error!("failed to verify tss message: {:?}", e);
+                    Status::invalid_argument(format!("Failed to verify tss signature: {e}"))
+                })?;
+        }
+
+        let decoded_tss_message = decode_tss_message(&tss.message)
+            .map_err(|e| Status::internal(format!("Failed to decode TSS message: {e}")))?;
+        let tunnel_packet = decoded_tss_message.packet;
+
+        for hook in &self.pre_sign_hooks {
+            hook.call(&tunnel_packet).await?;
+        }
+
+        match self
+            .signers
+            .get(&(ChainType::Secret, signer_payload.sender.clone()))
+        {
+            Some(signer) => {
+                let signals: Vec<(String, u64)> = tunnel_packet
+                    .signals
+                    .iter()
+                    .filter_map(filter_usd_signal)
+                    .collect();
+                let symbols: Vec<String> = signals.iter().map(|(sym, _)| sym.clone()).collect();
+                let rates: Vec<u64> = signals.iter().map(|(_, rate)| *rate).collect();
+
+                let resolve_time = u64::try_from(tunnel_packet.timestamp)
+                    .map_err(|_| Status::invalid_argument("Timestamp must be non-negative"))?;
+                let request_id = tunnel_packet.sequence;
+
+                let execute_msg_json =
+                    secret_execute_msg_json(symbols, rates, resolve_time, request_id).map_err(
+                        |e| Status::internal(format!("Failed to build execute msg json: {e}")),
+                    )?;
+
+                let encrypted_execute_msg = encrypt_secret_execute_msg(
+                    &signer_payload.code_hash,
+                    &signer_payload.pubkey,
+                    &execute_msg_json,
+                )
+                .map_err(|e| Status::internal(format!("Failed to encrypt execute msg: {e}")))?;
+
+                let pk_bytes = signer.private_key().ok_or_else(|| {
+                    Status::failed_precondition(format!(
+                        "Secret signer is missing a private key for sender {}",
+                        signer_payload.sender
+                    ))
+                })?;
+
+                let secret_params = SignSecretTxParams {
+                    signer_private_key: pk_bytes.to_vec(),
+                    sender_address_bech32: signer_payload.sender.clone(),
+                    contract_address_bech32: signer_payload.contract_address.clone(),
+                    encrypted_execute_msg,
+                    chain_id: signer_payload.chain_id.clone(),
+                    account_number: signer_payload.account_number,
+                    sequence: signer_payload.sequence,
+                    gas_limit: signer_payload.gas_limit,
+                    gas_prices: signer_payload.gas_prices.clone(),
+                    memo: signer_payload.memo.clone(),
+                };
+
+                let tx_blob = sign_secret_tx(secret_params)
+                    .map_err(|e| Status::internal(format!("Failed to sign Secret tx: {e}")))?;
+
+                info!("successfully signed secret cosmwasm message");
+                Ok(Response::new(SignSecretResponse { tx_blob }))
+            }
+            None => {
+                warn!("no signer found for {}", signer_payload.sender);
+                Err(Status::not_found("Signer not found"))
+            }
+        }
+    }
+
     #[instrument(skip(self, _request))]
     async fn get_signer_addresses(
         &self,
@@ -494,6 +592,7 @@ impl FkmsService for Server {
                     ChainType::Icon => proto_chain_type::Icon,
                     ChainType::Flow => proto_chain_type::Flow,
                     ChainType::Soroban => proto_chain_type::Soroban,
+                    ChainType::Secret => proto_chain_type::Secret,
                 };
                 Signers {
                     chain_type: proto_ct as i32,

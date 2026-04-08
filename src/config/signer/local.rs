@@ -36,4 +36,5 @@ pub enum ChainType {
     Icon,
     Flow,
     Soroban,
+    Secret,
 }
