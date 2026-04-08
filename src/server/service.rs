@@ -1,5 +1,5 @@
 use crate::codec::cosmwasm_secret::{
-    encrypt_secret_execute_msg, secret_execute_msg_json, sign_secret_tx,
+    SignSecretTxParams, encrypt_secret_execute_msg, secret_execute_msg_json, sign_secret_tx,
 };
 use crate::codec::evm::decode_tx;
 use crate::codec::flow;
@@ -418,19 +418,21 @@ impl FkmsService for Server {
                     Status::invalid_argument("Signer private key is required for Secret signing")
                 })?;
 
-                let tx_blob = sign_secret_tx(
-                    pk_bytes,
-                    &signer_payload.sender,
-                    &signer_payload.contract_address,
+                let secret_params = SignSecretTxParams {
+                    signer_private_key: pk_bytes.to_vec(),
+                    sender_address_bech32: signer_payload.sender.clone(),
+                    contract_address_bech32: signer_payload.contract_address.clone(),
                     encrypted_execute_msg,
-                    &signer_payload.chain_id,
-                    signer_payload.account_number,
-                    signer_payload.sequence,
-                    signer_payload.gas_limit,
-                    &signer_payload.gas_prices,
-                    &signer_payload.memo,
-                )
-                .map_err(|e| Status::internal(format!("Failed to sign Secret tx: {e}")))?;
+                    chain_id: signer_payload.chain_id.clone(),
+                    account_number: signer_payload.account_number,
+                    sequence: signer_payload.sequence,
+                    gas_limit: signer_payload.gas_limit,
+                    gas_prices: signer_payload.gas_prices.clone(),
+                    memo: signer_payload.memo.clone(),
+                };
+
+                let tx_blob = sign_secret_tx(secret_params)
+                    .map_err(|e| Status::internal(format!("Failed to sign Secret tx: {e}")))?;
 
                 info!("successfully signed secret cosmwasm message");
                 Ok(Response::new(SignSecretResponse { tx_blob }))

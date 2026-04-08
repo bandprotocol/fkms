@@ -117,26 +117,28 @@ pub fn encrypt_secret_execute_msg(
     offline_encrypt_secret_message(&plaintext, &receiver_pubkey)
 }
 
-pub fn sign_secret_tx(
-    signer_private_key: &[u8],
-    sender_address_bech32: &str,
-    contract_address_bech32: &str,
-    encrypted_execute_msg: Vec<u8>,
-    chain_id: &str,
-    account_number: u64,
-    sequence: u64,
-    gas_limit: u64,
-    gas_prices: &str,
-    memo: &str,
-) -> Result<Vec<u8>> {
-    let sender_bytes = decode_acc_address_bech32(sender_address_bech32)?;
-    let contract_bytes = decode_acc_address_bech32(contract_address_bech32)?;
+pub struct SignSecretTxParams {
+    pub signer_private_key: Vec<u8>,
+    pub sender_address_bech32: String,
+    pub contract_address_bech32: String,
+    pub encrypted_execute_msg: Vec<u8>,
+    pub chain_id: String,
+    pub account_number: u64,
+    pub sequence: u64,
+    pub gas_limit: u64,
+    pub gas_prices: String,
+    pub memo: String,
+}
+
+pub fn sign_secret_tx(params: SignSecretTxParams) -> Result<Vec<u8>> {
+    let sender_bytes = decode_acc_address_bech32(&params.sender_address_bech32)?;
+    let contract_bytes = decode_acc_address_bech32(&params.contract_address_bech32)?;
 
     // Build secret MsgExecuteContract protobuf bytes.
     let msg = MsgExecuteContract {
         sender: sender_bytes,
         contract: contract_bytes,
-        msg: encrypted_execute_msg,
+        msg: params.encrypted_execute_msg,
         callback_code_hash: "".to_string(),
         sent_funds: vec![],
         callback_sig: vec![],
@@ -148,21 +150,22 @@ pub fn sign_secret_tx(
         value: msg_bytes,
     };
 
-    let tx_body = Body::new(vec![msg_any], memo.to_string(), 0u16);
+    let tx_body = Body::new(vec![msg_any], params.memo, 0u16);
 
-    let fee_coin = parse_gas_prices_to_fee_coin(gas_prices, gas_limit)?;
-    let signing_key = secp256k1::SigningKey::from_slice(signer_private_key)
+    let fee_coin = parse_gas_prices_to_fee_coin(&params.gas_prices, params.gas_limit)?;
+    let signing_key = secp256k1::SigningKey::from_slice(&params.signer_private_key)
         .map_err(|e| anyhow!("invalid signer private key: {e}"))?;
 
-    let signer_info = SignerInfo::single_direct(Some(signing_key.public_key()), sequence);
+    let signer_info = SignerInfo::single_direct(Some(signing_key.public_key()), params.sequence);
 
-    let auth_info = signer_info.auth_info(Fee::from_amount_and_gas(fee_coin, gas_limit));
+    let auth_info = signer_info.auth_info(Fee::from_amount_and_gas(fee_coin, params.gas_limit));
 
-    let chain_id = chain_id
+    let chain_id = params
+        .chain_id
         .parse()
-        .map_err(|e| anyhow!("invalid chain_id {chain_id}: {e}"))?;
+        .map_err(|e| anyhow!("invalid chain_id {}: {e}", params.chain_id))?;
 
-    let sign_doc = SignDoc::new(&tx_body, &auth_info, &chain_id, account_number)
+    let sign_doc = SignDoc::new(&tx_body, &auth_info, &chain_id, params.account_number)
         .map_err(|e| anyhow!("failed to create SignDoc: {e}"))?;
     let tx_signed = sign_doc
         .sign(&signing_key)
@@ -344,7 +347,6 @@ fn parse_gas_prices_to_fee_coin(gas_prices: &str, gas_limit: u64) -> Result<cosm
     }
     let (num_str, denom) = gas_prices.split_at(idx);
     let denom = denom.to_string();
-    let num_str = num_str;
 
     let (int_part, frac_part) = if let Some(dot) = num_str.find('.') {
         (&num_str[..dot], &num_str[dot + 1..])
