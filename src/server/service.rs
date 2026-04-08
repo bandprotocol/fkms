@@ -535,7 +535,10 @@ impl FkmsService for Server {
                 .map_err(|e| Status::internal(format!("Failed to encrypt execute msg: {e}")))?;
 
                 let pk_bytes = signer.private_key().ok_or_else(|| {
-                    Status::invalid_argument("Signer private key is required for Secret signing")
+                    Status::failed_precondition(format!(
+                        "Secret signer is missing a private key for sender {}",
+                        signer_payload.sender
+                    ))
                 })?;
 
                 let secret_params = SignSecretTxParams {

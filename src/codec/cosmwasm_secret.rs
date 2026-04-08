@@ -110,8 +110,17 @@ pub fn encrypt_secret_execute_msg(
             .map_err(|_| anyhow!("pubkey should be 32 bytes"))?,
     );
 
-    let mut plaintext = Vec::with_capacity(code_hash.len() + execute_msg_json.len());
-    plaintext.extend_from_slice(code_hash.as_bytes());
+    let code_hash_hex = code_hash.trim_start_matches("0x");
+    let code_hash_bytes = hex::decode(code_hash_hex).context("invalid code_hash hex")?;
+    if code_hash_bytes.len() != 32 {
+        return Err(anyhow!(
+            "invalid code_hash length: expected 32 bytes (64 hex chars), got {}",
+            code_hash_bytes.len()
+        ));
+    }
+
+    let mut plaintext = Vec::with_capacity(code_hash_bytes.len() + execute_msg_json.len());
+    plaintext.extend_from_slice(&code_hash_bytes);
     plaintext.extend_from_slice(execute_msg_json);
 
     offline_encrypt_secret_message(&plaintext, &receiver_pubkey)
@@ -380,7 +389,7 @@ fn parse_gas_prices_to_fee_coin(gas_prices: &str, gas_limit: u64) -> Result<cosm
     let fee_scaled = amount_scaled
         .checked_mul(gas_limit as u128)
         .ok_or_else(|| anyhow!("fee overflow"))?;
-    let fee_amount = fee_scaled / scale;
+    let fee_amount = fee_scaled.div_ceil(scale);
 
     let coin = cosmrs::Coin {
         denom: denom
@@ -398,10 +407,8 @@ mod tests {
 
     #[test]
     fn test_decode_acc_address_bech32_length() {
-        // This is just to ensure decoding/length logic works with a sample;
-        // address correctness is not asserted here.
-        // Replace with a real Secret Network address if needed.
-        let _ = decode_acc_address_bech32("secret1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq3d4r"); // should error
+        // This sample is expected to fail decoding.
+        assert!(decode_acc_address_bech32("secret1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq3d4r").is_err());
     }
 
     #[test]
@@ -416,5 +423,64 @@ mod tests {
         // resolve_time and request_id must be JSON numbers, not strings
         assert!(s.contains("\"resolve_time\":10"));
         assert!(s.contains("\"request_id\":20"));
+    }
+
+    #[test]
+    fn test_parse_gas_prices_rounding() {
+        // 0.025 * 10 = 0.25 -> should round up to 1
+        let coin = parse_gas_prices_to_fee_coin("0.025uscrt", 10).unwrap();
+        assert_eq!(coin.amount, 1);
+        assert_eq!(coin.denom.to_string(), "uscrt");
+
+        // 0.001 * 500 = 0.5 -> should round up to 1
+        let coin = parse_gas_prices_to_fee_coin("0.001uscrt", 500).unwrap();
+        assert_eq!(coin.amount, 1);
+
+        // 0.15 * 10 = 1.5 -> should round up to 2
+        let coin = parse_gas_prices_to_fee_coin("0.15uscrt", 10).unwrap();
+        assert_eq!(coin.amount, 2);
+
+        // Exact integer case: 0.1 * 10 = 1.0 -> should be 1
+        let coin = parse_gas_prices_to_fee_coin("0.1uscrt", 10).unwrap();
+        assert_eq!(coin.amount, 1);
+    }
+
+    #[test]
+    fn test_encrypt_secret_execute_msg_code_hash_handling() {
+        let code_hash = "0x000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f";
+        let pubkey_hex = "415082ba441584c017f8a75e3328229e64a4d656f4e1f727bcaadc3b7e71612a";
+        let msg = b"{}";
+
+        // Should succeed with 0x prefix
+        let result = encrypt_secret_execute_msg(code_hash, pubkey_hex, msg);
+        assert!(result.is_ok(), "failed with 0x prefix: {:?}", result.err());
+
+        // Should succeed without 0x prefix
+        let result = encrypt_secret_execute_msg(&code_hash[2..], pubkey_hex, msg);
+        assert!(
+            result.is_ok(),
+            "failed without 0x prefix: {:?}",
+            result.err()
+        );
+
+        // Should fail with invalid hex (odd number of characters)
+        let result = encrypt_secret_execute_msg("invalidhex", pubkey_hex, msg);
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("invalid code_hash hex")
+        );
+
+        // Should fail with invalid length (even characters, but not 32 bytes)
+        let result = encrypt_secret_execute_msg("deadbeef", pubkey_hex, msg);
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("invalid code_hash length")
+        );
     }
 }
