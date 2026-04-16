@@ -117,7 +117,9 @@ pub fn encrypt_secret_execute_msg(
         ));
     }
     if !code_hash_hex.chars().all(|c| c.is_ascii_hexdigit()) {
-        return Err(anyhow!("invalid code_hash hex: contains non-hex characters"));
+        return Err(anyhow!(
+            "invalid code_hash hex: contains non-hex characters"
+        ));
     }
 
     let mut plaintext = Vec::with_capacity(code_hash_hex.len() + execute_msg_json.len());

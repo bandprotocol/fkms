@@ -512,13 +512,11 @@ impl FkmsService for Server {
             .get(&(ChainType::Secret, signer_payload.sender.clone()))
         {
             Some(signer) => {
-                let signals: Vec<(String, u64)> = tunnel_packet
+                let (symbols, rates): (Vec<String>, Vec<u64>) = tunnel_packet
                     .signals
                     .iter()
                     .filter_map(filter_usd_signal)
-                    .collect();
-                let symbols: Vec<String> = signals.iter().map(|(sym, _)| sym.clone()).collect();
-                let rates: Vec<u64> = signals.iter().map(|(_, rate)| *rate).collect();
+                    .unzip();
 
                 let resolve_time = u64::try_from(tunnel_packet.timestamp)
                     .map_err(|_| Status::invalid_argument("Timestamp must be non-negative"))?;
