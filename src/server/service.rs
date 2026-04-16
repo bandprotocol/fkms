@@ -529,7 +529,7 @@ impl FkmsService for Server {
 
                 let encrypted_execute_msg = encrypt_secret_execute_msg(
                     &signer_payload.code_hash,
-                    &signer_payload.pubkey,
+                    &signer_payload.chain_pubkey,
                     &execute_msg_json,
                 )
                 .map_err(|e| Status::internal(format!("Failed to encrypt execute msg: {e}")))?;
