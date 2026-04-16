@@ -2,7 +2,8 @@ use crate::config::signer::local::ChainType;
 use crate::signer::signature::Signature;
 use crate::signer::signature::ecdsa::{DerSignature, P256Signature};
 use crate::signer::{
-    Signer, public_key_to_evm_address, public_key_to_icon_address, public_key_to_xrpl_address,
+    Signer, public_key_to_evm_address, public_key_to_icon_address, public_key_to_secret_address,
+    public_key_to_xrpl_address,
 };
 use ecdsa::SignatureSize;
 use ecdsa::hazmat::SignPrimitive;
@@ -96,6 +97,12 @@ impl LocalSigner {
                     public_key_address,
                 )
             }
+            ChainType::Secret => {
+                let signing_key = EcdsaSigningKey::from_slice(private_key)?;
+                let public_key = create_ecdsa_public_key(&signing_key, true);
+                let address = public_key_to_secret_address(&public_key)?;
+                (SigningKey::EcdsaK256(signing_key), public_key, address)
+            }
         };
 
         Ok(LocalSigner {
@@ -157,6 +164,7 @@ impl Signer for LocalSigner {
             ChainType::Icon => self.sign_ecdsa(message).await,
             ChainType::Flow => self.sign_p256(message).await,
             ChainType::Soroban => self.sign_ed25519(message).await,
+            ChainType::Secret => self.sign_ecdsa(message).await,
         }
     }
 
@@ -198,7 +206,7 @@ mod test {
     use super::*;
     use crate::signer::Signer;
     use base32;
-    use k256::sha2::{Digest, Sha512};
+    use k256::sha2::{Digest, Sha256, Sha512};
     use sha3::Keccak256;
 
     #[tokio::test]
@@ -358,5 +366,57 @@ mod test {
         let address = public_key_to_icon_address(&pk).unwrap();
         let expected = "hx8521060f28fdedcc4e4544ee499008809d4c0322";
         assert_eq!(address, expected);
+    }
+
+    #[test]
+    fn test_public_key_to_secret_address() {
+        let pk = hex::decode("031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f")
+            .unwrap();
+        let address = public_key_to_secret_address(&pk).unwrap();
+        let expected = "secret10xcqpzrky6eff2g52qdye53xkk9jxkvrr9w4al";
+        assert_eq!(address, expected);
+    }
+
+    #[test]
+    fn test_address_generation_secret() {
+        // Known test vector for secp256k1 (private key: 0x01*32)
+        let pk = hex::decode("0101010101010101010101010101010101010101010101010101010101010101")
+            .unwrap();
+        let signer = LocalSigner::new(&pk, &ChainType::Secret, None).unwrap();
+
+        // Verify address derivation (Cosmos style with 'secret' prefix)
+        // PK 0x01... -> Pubkey 031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f
+        // Ripemd160(Sha256(Pubkey)) -> 0021c25805dc8f352e698188619bc16940866509
+        // Bech32("secret", ...) -> secret10xcqpzrky6eff2g52qdye53xkk9jxkvrr9w4al
+        assert_eq!(
+            signer.address(),
+            "secret10xcqpzrky6eff2g52qdye53xkk9jxkvrr9w4al"
+        );
+
+        // Validate public key is compressed (33 bytes)
+        let pubkey = signer.public_key();
+        assert_eq!(
+            pubkey.len(),
+            33,
+            "Secret public key must be compressed (33 bytes)"
+        );
+        assert!(
+            pubkey[0] == 0x02 || pubkey[0] == 0x03,
+            "Secret public key must have compressed prefix (0x02 or 0x03)"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_sign_ecdsa_secret() {
+        let pk = hex::decode("0101010101010101010101010101010101010101010101010101010101010101")
+            .unwrap();
+        let signer = LocalSigner::new(&pk, &ChainType::Secret, None).unwrap();
+        let message = b"Hello, Secret Network!";
+        // use Sha256 for Cosmos/Secret pre-hashing
+        let digest = Sha256::digest(message);
+        let signature = signer.sign(&digest).await.unwrap();
+
+        // Secp256k1 recoverable signature (R || S || V) should be 65 bytes
+        assert_eq!(signature.len(), 65);
     }
 }
