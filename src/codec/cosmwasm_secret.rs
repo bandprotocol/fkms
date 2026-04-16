@@ -2,7 +2,6 @@ use anyhow::{Context, Result, anyhow};
 use cmac::{Cmac, Mac};
 use cosmrs::{
     AccountId, Any,
-    crypto::secp256k1,
     tx::{Body, Fee, SignDoc, SignerInfo},
 };
 use hkdf::Hkdf;
@@ -35,12 +34,12 @@ pub struct Coin {
     pub amount: String,
 }
 
-// Matches: secret.compute.v1beta1.MsgExecuteContract
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct MsgExecuteContract {
     // sender sdk.AccAddress (20 bytes)
     #[prost(bytes, tag = "1")]
     pub sender: Vec<u8>,
+    // contract sdk.AccAddress (20 bytes)
     #[prost(bytes, tag = "2")]
     pub contract: Vec<u8>,
     // encrypted bytes (nonce||pubkey||ciphertext)
@@ -110,24 +109,25 @@ pub fn encrypt_secret_execute_msg(
             .map_err(|_| anyhow!("pubkey should be 32 bytes"))?,
     );
 
-    let code_hash_hex = code_hash.trim_start_matches("0x");
-    let code_hash_bytes = hex::decode(code_hash_hex).context("invalid code_hash hex")?;
-    if code_hash_bytes.len() != 32 {
+    let code_hash_hex = code_hash.trim_start_matches("0x").to_lowercase();
+    if code_hash_hex.len() != 64 {
         return Err(anyhow!(
-            "invalid code_hash length: expected 32 bytes (64 hex chars), got {}",
-            code_hash_bytes.len()
+            "invalid code_hash length: expected 64 hex chars, got {}",
+            code_hash_hex.len()
         ));
     }
+    if !code_hash_hex.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Err(anyhow!("invalid code_hash hex: contains non-hex characters"));
+    }
 
-    let mut plaintext = Vec::with_capacity(code_hash_bytes.len() + execute_msg_json.len());
-    plaintext.extend_from_slice(&code_hash_bytes);
+    let mut plaintext = Vec::with_capacity(code_hash_hex.len() + execute_msg_json.len());
+    plaintext.extend_from_slice(code_hash_hex.as_bytes());
     plaintext.extend_from_slice(execute_msg_json);
 
     offline_encrypt_secret_message(&plaintext, &receiver_pubkey)
 }
 
 pub struct SignSecretTxParams {
-    pub signer_private_key: Vec<u8>,
     pub sender_address_bech32: String,
     pub contract_address_bech32: String,
     pub encrypted_execute_msg: Vec<u8>,
@@ -139,7 +139,10 @@ pub struct SignSecretTxParams {
     pub memo: String,
 }
 
-pub fn sign_secret_tx(params: SignSecretTxParams) -> Result<Vec<u8>> {
+pub fn prepare_secret_tx_for_signing(
+    public_key: &[u8],
+    params: SignSecretTxParams,
+) -> Result<(Vec<u8>, SignDoc)> {
     let sender_bytes = decode_acc_address_bech32(&params.sender_address_bech32)?;
     let contract_bytes = decode_acc_address_bech32(&params.contract_address_bech32)?;
 
@@ -162,10 +165,12 @@ pub fn sign_secret_tx(params: SignSecretTxParams) -> Result<Vec<u8>> {
     let tx_body = Body::new(vec![msg_any], params.memo, 0u16);
 
     let fee_coin = parse_gas_prices_to_fee_coin(&params.gas_prices, params.gas_limit)?;
-    let signing_key = secp256k1::SigningKey::from_slice(&params.signer_private_key)
-        .map_err(|e| anyhow!("invalid signer private key: {e}"))?;
 
-    let signer_info = SignerInfo::single_direct(Some(signing_key.public_key()), params.sequence);
+    let verifying_key = k256::ecdsa::VerifyingKey::from_sec1_bytes(public_key)
+        .map_err(|e| anyhow!("invalid signer public key: {e}"))?;
+    let pubkey = cosmrs::crypto::PublicKey::from(verifying_key);
+
+    let signer_info = SignerInfo::single_direct(Some(pubkey), params.sequence);
 
     let auth_info = signer_info.auth_info(Fee::from_amount_and_gas(fee_coin, params.gas_limit));
 
@@ -176,13 +181,31 @@ pub fn sign_secret_tx(params: SignSecretTxParams) -> Result<Vec<u8>> {
 
     let sign_doc = SignDoc::new(&tx_body, &auth_info, &chain_id, params.account_number)
         .map_err(|e| anyhow!("failed to create SignDoc: {e}"))?;
-    let tx_signed = sign_doc
-        .sign(&signing_key)
-        .map_err(|e| anyhow!("failed to sign SignDoc: {e}"))?;
 
-    tx_signed
-        .to_bytes()
-        .map_err(|e| anyhow!("failed to serialize signed tx: {e}"))
+    let sign_doc_bytes = sign_doc
+        .clone()
+        .into_bytes()
+        .map_err(|e| anyhow!("failed to serialize SignDoc: {e}"))?;
+
+    Ok((sign_doc_bytes, sign_doc))
+}
+
+pub fn finalize_secret_tx(sign_doc: SignDoc, signature: &[u8]) -> Result<Vec<u8>> {
+    if signature.len() < 64 {
+        return Err(anyhow!(
+            "invalid signature length: expected at least 64 bytes, got {}",
+            signature.len()
+        ));
+    }
+
+    let proto = sign_doc.into_proto();
+    let tx_raw = cosmrs::proto::cosmos::tx::v1beta1::TxRaw {
+        body_bytes: proto.body_bytes,
+        auth_info_bytes: proto.auth_info_bytes,
+        signatures: vec![signature[..64].to_vec()],
+    };
+
+    Ok(tx_raw.encode_to_vec())
 }
 
 fn offline_encrypt_secret_message(
@@ -209,9 +232,13 @@ fn offline_encrypt_secret_message(
         .map_err(|e| anyhow!("HKDF expand failed: {e}"))?;
 
     let aes_encryption_key = okm; // 32 bytes
+    // The Go implementation calls: cipher.Seal(nil, plaintext, []byte{})
+    // This passes ONE variadic arg (an empty slice) as associated data.
+    // S2V with [empty] != S2V with [] — they produce different SIV tags.
+    let empty: &[u8] = &[];
+    let associated_data: &[&[u8]] = &[empty];
 
-    let associated_data = [&nonce[..], tx_sender_pubkey.as_bytes()];
-    let ciphertext = encrypt_data_cmac_siv(&aes_encryption_key, plaintext, &associated_data)?;
+    let ciphertext = encrypt_data_cmac_siv(&aes_encryption_key, plaintext, associated_data)?;
 
     let mut out = Vec::with_capacity(32 + 32 + ciphertext.len());
     out.extend_from_slice(&nonce);
@@ -460,24 +487,29 @@ mod tests {
             result.err()
         );
 
-        // Should fail with invalid hex (odd number of characters)
-        let result = encrypt_secret_execute_msg("invalidhex", pubkey_hex, msg);
-        assert!(result.is_err());
-        assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("invalid code_hash hex")
-        );
-
-        // Should fail with invalid length (even characters, but not 32 bytes)
+        // Should fail with wrong length (too short)
         let result = encrypt_secret_execute_msg("deadbeef", pubkey_hex, msg);
         assert!(result.is_err());
         assert!(
             result
                 .unwrap_err()
                 .to_string()
-                .contains("invalid code_hash length")
+                .contains("invalid code_hash length"),
+            "expected length error"
+        );
+
+        // Should fail with correct length (64 chars) but non-hex characters
+        // 63 valid hex chars + 'g' (non-hex)
+        let non_hex_hash = "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1g";
+        assert_eq!(non_hex_hash.len(), 64);
+        let result = encrypt_secret_execute_msg(non_hex_hash, pubkey_hex, msg);
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("invalid code_hash hex"),
+            "expected hex char error"
         );
     }
 

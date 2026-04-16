@@ -24,11 +24,6 @@ pub trait Signer: Send + Sync + 'static {
     fn address(&self) -> &str;
 
     fn chain_type(&self) -> &ChainType;
-
-    // For remote signers (AWS/HSM), this is left as `None`.
-    fn private_key(&self) -> Option<&[u8]> {
-        None
-    }
 }
 
 pub fn public_key_to_evm_address(public_key: &[u8]) -> anyhow::Result<String> {

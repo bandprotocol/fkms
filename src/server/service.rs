@@ -1,5 +1,6 @@
 use crate::codec::cosmwasm_secret::{
-    SignSecretTxParams, encrypt_secret_execute_msg, secret_execute_msg_json, sign_secret_tx,
+    SignSecretTxParams, encrypt_secret_execute_msg, finalize_secret_tx,
+    prepare_secret_tx_for_signing, secret_execute_msg_json,
 };
 use crate::codec::evm::decode_tx;
 use crate::codec::flow;
@@ -21,7 +22,7 @@ use crate::proto::fkms::v1::{
 };
 use crate::server::Server;
 use crate::server::utils::filter_usd_signal;
-use k256::sha2::Sha512;
+use k256::sha2::{Sha256, Sha512};
 use sha3::{Digest, Sha3_256};
 use std::collections::HashMap;
 use tonic::{Request, Response, Status};
@@ -535,15 +536,7 @@ impl FkmsService for Server {
                 )
                 .map_err(|e| Status::internal(format!("Failed to encrypt execute msg: {e}")))?;
 
-                let pk_bytes = signer.private_key().ok_or_else(|| {
-                    Status::failed_precondition(format!(
-                        "Secret signer is missing a private key for sender {}",
-                        signer_payload.sender
-                    ))
-                })?;
-
                 let secret_params = SignSecretTxParams {
-                    signer_private_key: pk_bytes.to_vec(),
                     sender_address_bech32: signer_payload.sender.clone(),
                     contract_address_bech32: signer_payload.contract_address.clone(),
                     encrypted_execute_msg,
@@ -555,8 +548,19 @@ impl FkmsService for Server {
                     memo: signer_payload.memo.clone(),
                 };
 
-                let tx_blob = sign_secret_tx(secret_params)
-                    .map_err(|e| Status::internal(format!("Failed to sign Secret tx: {e}")))?;
+                let (sign_doc_bytes, sign_doc) =
+                    prepare_secret_tx_for_signing(signer.public_key(), secret_params).map_err(
+                        |e| Status::internal(format!("Failed to prepare Secret tx: {e}")),
+                    )?;
+
+                let digest = Sha256::digest(&sign_doc_bytes);
+                let signature = signer.sign(&digest).await.map_err(|e| {
+                    error!("failed to sign secret message: {:?}", e);
+                    Status::internal(format!("Failed to sign message: {e}"))
+                })?;
+
+                let tx_blob = finalize_secret_tx(sign_doc, &signature)
+                    .map_err(|e| Status::internal(format!("Failed to finalize Secret tx: {e}")))?;
 
                 info!("successfully signed secret cosmwasm message");
                 Ok(Response::new(SignSecretResponse { tx_blob }))

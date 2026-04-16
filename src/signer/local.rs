@@ -25,7 +25,6 @@ use stellar_strkey::Strkey;
 pub struct LocalSigner {
     signing_key: SigningKey,
     public_key: Vec<u8>,
-    private_key: Vec<u8>,
     address: String,
     chain_type: ChainType,
 }
@@ -109,7 +108,6 @@ impl LocalSigner {
         Ok(LocalSigner {
             signing_key,
             public_key,
-            private_key: private_key.to_vec(),
             address,
             chain_type: chain_type.clone(),
         })
@@ -180,10 +178,6 @@ impl Signer for LocalSigner {
 
     fn chain_type(&self) -> &ChainType {
         &self.chain_type
-    }
-
-    fn private_key(&self) -> Option<&[u8]> {
-        Some(&self.private_key)
     }
 }
 
