@@ -15,8 +15,7 @@ use crate::proto::fkms::v1::fkms_service_server::FkmsService;
 use crate::proto::fkms::v1::{
     EvmSignerPayload, GetSignerAddressesRequest, GetSignerAddressesResponse, SignEvmRequest,
     SignEvmResponse, SignFlowRequest, SignFlowResponse, SignIconRequest, SignIconResponse,
-    SignSecretRequest, SignSecretResponse, SignSorobanRequest, SignSorobanResponse,
-    SignXrplRequest, SignXrplResponse, Signers,
+    SignSorobanRequest, SignSorobanResponse, SignXrplRequest, SignXrplResponse, Signers,
 };
 use crate::server::Server;
 use crate::server::utils::filter_usd_signal;
