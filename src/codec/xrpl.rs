@@ -63,7 +63,7 @@ fn create_price_data(base: String, price: &u64) -> anyhow::Result<Value> {
 
     Ok(json!({
         "PriceData": {
-            "AssetPrice": price.to_string(),
+            "AssetPrice": format!("{:016X}", price),
             "BaseAsset": base,
             "QuoteAsset": quote,
             "Scale": 9,
@@ -176,5 +176,162 @@ mod tests {
         // Should convert without adding any padding or validation
         let result = str_to_hex("ABC", None).unwrap();
         assert_eq!(result, "414243");
+    }
+
+    #[test]
+    fn test_asset_price_is_hex_string() {
+        // AssetPrice must be a 16-char uppercase hex string (XRPL UInt64 canonical format)
+        let signals = vec![("BTC".to_string(), 67758920310332u64)];
+        let payload = create_signing_payload(
+            &signals,
+            "rpJ8fpF16aB8a4rmhkZNaXCWq3zweEzKrB",
+            1,
+            "10",
+            100,
+            825330000,
+            "02d5a397a10de2c485fa5592ffd86a7b5744bc221e24f71196acd32eb66b14264c",
+        )
+        .unwrap();
+
+        let price_str = payload["PriceDataSeries"][0]["PriceData"]["AssetPrice"]
+            .as_str()
+            .expect("AssetPrice must be a string");
+
+        // Must be exactly 16 hex characters
+        assert_eq!(
+            price_str.len(),
+            16,
+            "AssetPrice must be 16 chars, got: {price_str}"
+        );
+        assert!(
+            price_str.chars().all(|c| c.is_ascii_hexdigit()),
+            "AssetPrice must be hex, got: {price_str}"
+        );
+
+        // 67758920310332 decimal == 0x3DA05A601E3C hex
+        assert_eq!(price_str, "00003DA05A601E3C");
+    }
+
+    #[test]
+    fn test_asset_price_zero() {
+        let signals = vec![("BTC".to_string(), 0u64)];
+        let payload = create_signing_payload(
+            &signals,
+            "rpJ8fpF16aB8a4rmhkZNaXCWq3zweEzKrB",
+            1,
+            "10",
+            100,
+            825330000,
+            "02d5a397a10de2c485fa5592ffd86a7b5744bc221e24f71196acd32eb66b14264c",
+        )
+        .unwrap();
+
+        let price_str = payload["PriceDataSeries"][0]["PriceData"]["AssetPrice"]
+            .as_str()
+            .unwrap();
+        assert_eq!(price_str, "0000000000000000");
+    }
+
+    #[test]
+    fn test_asset_price_max_u64() {
+        let signals = vec![("BTC".to_string(), u64::MAX)];
+        let payload = create_signing_payload(
+            &signals,
+            "rpJ8fpF16aB8a4rmhkZNaXCWq3zweEzKrB",
+            1,
+            "10",
+            100,
+            825330000,
+            "02d5a397a10de2c485fa5592ffd86a7b5744bc221e24f71196acd32eb66b14264c",
+        )
+        .unwrap();
+
+        let price_str = payload["PriceDataSeries"][0]["PriceData"]["AssetPrice"]
+            .as_str()
+            .unwrap();
+        assert_eq!(price_str, "FFFFFFFFFFFFFFFF");
+    }
+
+    #[test]
+    fn test_non_3char_base_asset_is_hex_encoded() {
+        // WBTC (4 chars) should be hex-encoded and right-padded to 40 chars
+        let signals = vec![("WBTC".to_string(), 1_000_000_000u64)];
+        let payload = create_signing_payload(
+            &signals,
+            "rpJ8fpF16aB8a4rmhkZNaXCWq3zweEzKrB",
+            1,
+            "10",
+            100,
+            825330000,
+            "02d5a397a10de2c485fa5592ffd86a7b5744bc221e24f71196acd32eb66b14264c",
+        )
+        .unwrap();
+
+        let entry = &payload["PriceDataSeries"][0]["PriceData"];
+        let base = entry["BaseAsset"].as_str().unwrap();
+        // "WBTC" hex = 57425443, right-padded to 40 chars
+        assert_eq!(base.len(), 40);
+        assert!(base.starts_with("57425443"));
+        assert_eq!(entry["QuoteAsset"], "USD");
+    }
+
+    #[test]
+    fn test_negative_timestamp_is_rejected() {
+        let signals = vec![("BTC".to_string(), 1_000u64)];
+        let result = create_signing_payload(
+            &signals,
+            "rpJ8fpF16aB8a4rmhkZNaXCWq3zweEzKrB",
+            1,
+            "10",
+            100,
+            -1,
+            "02d5a397a10de2c485fa5592ffd86a7b5744bc221e24f71196acd32eb66b14264c",
+        );
+        assert!(result.is_err(), "Negative timestamp should be rejected");
+    }
+
+    #[test]
+    fn test_str_to_hex_too_long_is_rejected() {
+        // "Band Protocol" is 13 chars = 26 hex chars, fits in None but fails with Some(10)
+        let result = str_to_hex("Band Protocol", Some(10));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_scale_is_always_9() {
+        let signals = vec![("ETH".to_string(), 2_500_000_000_000u64)];
+        let payload = create_signing_payload(
+            &signals,
+            "rpJ8fpF16aB8a4rmhkZNaXCWq3zweEzKrB",
+            1,
+            "10",
+            100,
+            825330000,
+            "02d5a397a10de2c485fa5592ffd86a7b5744bc221e24f71196acd32eb66b14264c",
+        )
+        .unwrap();
+
+        let scale = payload["PriceDataSeries"][0]["PriceData"]["Scale"]
+            .as_u64()
+            .unwrap();
+        assert_eq!(scale, 9);
+    }
+
+    #[test]
+    fn test_empty_signals_produces_empty_series() {
+        let signals: Vec<(String, u64)> = vec![];
+        let payload = create_signing_payload(
+            &signals,
+            "rpJ8fpF16aB8a4rmhkZNaXCWq3zweEzKrB",
+            1,
+            "10",
+            100,
+            825330000,
+            "02d5a397a10de2c485fa5592ffd86a7b5744bc221e24f71196acd32eb66b14264c",
+        )
+        .unwrap();
+
+        let series = payload["PriceDataSeries"].as_array().unwrap();
+        assert!(series.is_empty());
     }
 }
