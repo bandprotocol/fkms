@@ -254,9 +254,15 @@ fn encrypt_data_cmac_siv(
     plaintext: &[u8],
     associated_data: &[&[u8]],
 ) -> Result<Vec<u8>> {
-    let (cmac_key, ctr_key) = aes_encryption_key.split_at(16);
-    let cmac_key: &[u8; 16] = cmac_key.try_into().expect("16 bytes");
-    let ctr_key: &[u8; 16] = ctr_key.try_into().expect("16 bytes");
+    let cmac_key: &[u8; 16] = aes_encryption_key
+        .get(..16)
+        .and_then(|s| s.try_into().ok())
+        .ok_or_else(|| anyhow!("internal error: cmac_key extraction failed"))?;
+
+    let ctr_key: &[u8; 16] = aes_encryption_key
+        .get(16..)
+        .and_then(|s| s.try_into().ok())
+        .ok_or_else(|| anyhow!("internal error: ctr_key extraction failed"))?;
 
     let siv_tag = s2v_aes_cmac_siv(cmac_key, associated_data, plaintext)?;
 
@@ -380,7 +386,12 @@ fn parse_gas_prices_to_fee_coin(gas_prices: &str, gas_limit: u64) -> Result<cosm
     if idx == 0 || idx >= gas_prices.len() {
         return Err(anyhow!("invalid gas_prices format: {gas_prices}"));
     }
-    let (num_str, denom) = gas_prices.split_at(idx);
+    let num_str = gas_prices
+        .get(..idx)
+        .ok_or_else(|| anyhow!("internal error: num_str extraction failed"))?;
+    let denom = gas_prices
+        .get(idx..)
+        .ok_or_else(|| anyhow!("internal error: denom extraction failed"))?;
     let denom = denom.to_string();
 
     let (int_part, frac_part) = if let Some(dot) = num_str.find('.') {
