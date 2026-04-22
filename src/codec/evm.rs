@@ -1,21 +1,7 @@
-use std::str;
-
-use alloy_sol_types::{SolValue, sol};
-use anyhow::Context;
-use rlp::Rlp;
-
-const EIP1559_TX_PREFIX: u8 = 0x02;
-
-#[derive(Debug)]
-pub enum TxType {
-    Legacy,
-    EIP1559,
-}
-
-pub struct EvmTx {
-    pub tx_type: TxType,
-    pub tss: Tss,
-}
+use alloy_consensus::{SignableTransaction, TxEip1559, TxEnvelope, TxLegacy};
+use alloy_eips::eip2718::Encodable2718;
+use alloy_primitives::{Address, Bytes, Signature, TxKind, U256};
+use alloy_sol_types::{SolCall, sol};
 
 sol! {
     struct Tss {
@@ -25,80 +11,110 @@ sol! {
     }
 }
 
-pub fn decode_tx(encoded_tx: &[u8]) -> anyhow::Result<EvmTx> {
-    let first_bytes = *encoded_tx.first().with_context(|| "Empty tx data")?;
+sol! {
+    function relay(bytes message, address randomAddr, uint256 signature) external;
+}
 
-    let (calldata, tx_type) = match first_bytes {
-        EIP1559_TX_PREFIX => {
-            let r = Rlp::new(&encoded_tx[1..]);
-            (r.val_at::<Vec<u8>>(7)?, TxType::EIP1559)
+/// Builds the ABI-encoded calldata for the tunnel router `relay(bytes,address,uint256)` function.
+pub fn create_relay_calldata(
+    message: &[u8],
+    random_addr: &[u8],
+    signature_s: &[u8],
+) -> anyhow::Result<Vec<u8>> {
+    let call = relayCall {
+        message: message.to_vec().into(),
+        randomAddr: Address::from_slice(random_addr),
+        signature: U256::from_be_slice(signature_s),
+    };
+
+    Ok(SolCall::abi_encode(&call))
+}
+
+/// Parameters needed to build an EVM transaction.
+pub struct EvmTxParams {
+    pub chain_id: u64,
+    pub nonce: u64,
+    pub to: Address,
+    pub calldata: Bytes,
+    pub gas_limit: u64,
+    /// Legacy tx: gas price (None for EIP-1559)
+    pub gas_price: Option<u128>,
+    /// EIP-1559: max fee per gas (None for Legacy)
+    pub gas_fee_cap: Option<u128>,
+    /// EIP-1559: max priority fee per gas (None for Legacy)
+    pub gas_tip_cap: Option<u128>,
+}
+
+/// Computes the signing hash for the transaction (Keccak256 of the signing payload).
+pub fn compute_signing_hash(params: &EvmTxParams) -> anyhow::Result<[u8; 32]> {
+    match (params.gas_price, params.gas_fee_cap, params.gas_tip_cap) {
+        (Some(gas_price), None, None) => {
+            let tx = build_legacy_tx(params, gas_price);
+            Ok(tx.signature_hash().into())
+        }
+        (None, Some(gas_fee_cap), Some(gas_tip_cap)) => {
+            let tx = build_eip1559_tx(params, gas_fee_cap, gas_tip_cap);
+            Ok(tx.signature_hash().into())
+        }
+        _ => Err(anyhow::anyhow!(
+            "Ambiguous gas fields: supply gas_price (legacy) OR gas_fee_cap+gas_tip_cap (EIP-1559)"
+        )),
+    }
+}
+
+/// Builds the complete EIP-2718 encoded signed transaction from params and a 65-byte signature.
+/// The signature bytes are in go-ethereum format: [r(32)][s(32)][v(1)].
+pub fn encode_signed_tx(params: &EvmTxParams, sig_bytes: &[u8]) -> anyhow::Result<Vec<u8>> {
+    anyhow::ensure!(sig_bytes.len() == 65, "signature must be 65 bytes");
+
+    // parity is the recovery bit: non-zero means true (odd y)
+    let sig = Signature::from_bytes_and_parity(&sig_bytes[..64], sig_bytes[64] != 0);
+
+    let envelope = match (params.gas_price, params.gas_fee_cap, params.gas_tip_cap) {
+        (Some(gas_price), None, None) => {
+            let tx = build_legacy_tx(params, gas_price);
+            let hash = tx.signature_hash();
+            let signed = alloy_consensus::Signed::new_unchecked(tx, sig, hash);
+            TxEnvelope::Legacy(signed)
+        }
+        (None, Some(gas_fee_cap), Some(gas_tip_cap)) => {
+            let tx = build_eip1559_tx(params, gas_fee_cap, gas_tip_cap);
+            let hash = tx.signature_hash();
+            let signed = alloy_consensus::Signed::new_unchecked(tx, sig, hash);
+            TxEnvelope::Eip1559(signed)
         }
         _ => {
-            let r = Rlp::new(encoded_tx);
-            (r.val_at::<Vec<u8>>(5)?, TxType::Legacy)
+            return Err(anyhow::anyhow!(
+                "Ambiguous gas fields: supply gas_price (legacy) OR gas_fee_cap+gas_tip_cap (EIP-1559)"
+            ));
         }
     };
 
-    // skip first 4 bytes that defines function
-    let data = calldata.get(4..).with_context(|| "Calldata too short")?;
-
-    let tss: Tss =
-        SolValue::abi_decode_params_validate(data).with_context(|| "Failed to decode abi")?;
-
-    Ok(EvmTx { tx_type, tss })
+    Ok(envelope.encoded_2718())
 }
 
-#[cfg(test)]
-mod tests {
-    use hex::decode;
-
-    use super::*;
-
-    #[test]
-    fn test_decode_tx_legacy() {
-        // The raw RLP encoded legacy transaction provided in your prompt
-        let hex_tx: &'static str = "f9020e820211843b9aca088301fcc494dc64a140aa3e981100a9beca4e685f962f0cf6c980b901e4bc3df4fc00000000000000000000000000000000000000000000000000000000000000600000000000000000000000000d113f3d78d9acd464204abd5e3d0ecde27f61f1508e63e0f4b8cf15772ca7523a6e52546f7cae4c826075790c75c699d052c5b30000000000000000000000000000000000000000000000000000000000000158d57ddbd30442f5b5ef493e2682b05513afcf18cca81ceaa3076d6ded121cc12c000000006822e30e0000000000000206d3813e0ccba0ad5a000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000002060000000000000000000000000000000000000000000000000000000000000060000000000000000000000000000000000000000000000000000000006822e30e00000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000043533a4254432d55534400000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000043533a4554482d55534400000000000000000000000000000000000000000000000000000000000000000000000000000000827a698080";
-        let raw_tx = decode(hex_tx).expect("Failed to decode hex string");
-
-        let evm_tx = decode_tx(&raw_tx).expect("decode_tx failed");
-
-        // 1. Verify Transaction Type
-        assert!(matches!(evm_tx.tx_type, TxType::Legacy));
-
-        // 2. Verify randomAddr
-        let expected_addr = "0d113f3d78d9acd464204abd5e3d0ecde27f61f1";
-        assert_eq!(hex::encode(evm_tx.tss.randomAddr), expected_addr);
-
-        // 3. Verify Signature
-        let expected_sig_hex = "508e63e0f4b8cf15772ca7523a6e52546f7cae4c826075790c75c699d052c5b3";
-        assert_eq!(format!("{:x}", evm_tx.tss.signature), expected_sig_hex);
-
-        // 4. Verify Message
-        let expected_msg_hex = "d57ddbd30442f5b5ef493e2682b05513afcf18cca81ceaa3076d6ded121cc12c000000006822e30e0000000000000206d3813e0ccba0ad5a000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000002060000000000000000000000000000000000000000000000000000000000000060000000000000000000000000000000000000000000000000000000006822e30e00000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000043533a4254432d55534400000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000043533a4554482d5553440000000000000000000000000000000000000000000000000000000000000000";
-        assert_eq!(hex::encode(&evm_tx.tss.message), expected_msg_hex);
+fn build_legacy_tx(params: &EvmTxParams, gas_price: u128) -> TxLegacy {
+    TxLegacy {
+        chain_id: Some(params.chain_id),
+        nonce: params.nonce,
+        gas_price,
+        gas_limit: params.gas_limit,
+        to: TxKind::Call(params.to),
+        value: U256::ZERO,
+        input: params.calldata.clone(),
     }
+}
 
-    #[test]
-    fn test_decode_tx_eip_1559() {
-        // The raw RLP encoded legacy transaction provided in your prompt
-        let hex_tx: &'static str = "02f90212827a6982020a843b9aca00843b9aca098301fcac94dc64a140aa3e981100a9beca4e685f962f0cf6c980b901e4bc3df4fc00000000000000000000000000000000000000000000000000000000000000600000000000000000000000003f5f8fddbeb02de6d9ecaf30046ca42076912b1b99eb4dfa00361d25c9f406b2bbd65ada5e6081f4e3de7175009fe0ff255e52d20000000000000000000000000000000000000000000000000000000000000158d57ddbd30442f5b5ef493e2682b05513afcf18cca81ceaa3076d6ded121cc12c000000006822dd1900000000000001ffd3813e0ccba0ad5a000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000001ff0000000000000000000000000000000000000000000000000000000000000060000000000000000000000000000000000000000000000000000000006822dd1900000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000043533a4254432d55534400000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000043533a4554482d55534400000000000000000000000000000000000000000000000000000000000000000000000000000000c0";
-        let raw_tx = decode(hex_tx).expect("Failed to decode hex string");
-
-        let evm_tx = decode_tx(&raw_tx).expect("decode_tx failed");
-
-        // 1. Verify Transaction Type
-        assert!(matches!(evm_tx.tx_type, TxType::EIP1559));
-
-        // 2. Verify randomAddr
-        let expected_addr = "3f5f8fddbeb02de6d9ecaf30046ca42076912b1b";
-        assert_eq!(hex::encode(evm_tx.tss.randomAddr), expected_addr);
-
-        // 3. Verify Signature
-        let expected_sig_hex = "99eb4dfa00361d25c9f406b2bbd65ada5e6081f4e3de7175009fe0ff255e52d2";
-        assert_eq!(format!("{:x}", evm_tx.tss.signature), expected_sig_hex);
-
-        // 4. Verify Message
-        let expected_msg_hex = "d57ddbd30442f5b5ef493e2682b05513afcf18cca81ceaa3076d6ded121cc12c000000006822dd1900000000000001ffd3813e0ccba0ad5a000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000001ff0000000000000000000000000000000000000000000000000000000000000060000000000000000000000000000000000000000000000000000000006822dd1900000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000043533a4254432d55534400000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000043533a4554482d5553440000000000000000000000000000000000000000000000000000000000000000";
-        assert_eq!(hex::encode(&evm_tx.tss.message), expected_msg_hex);
+fn build_eip1559_tx(params: &EvmTxParams, gas_fee_cap: u128, gas_tip_cap: u128) -> TxEip1559 {
+    TxEip1559 {
+        chain_id: params.chain_id,
+        nonce: params.nonce,
+        max_fee_per_gas: gas_fee_cap,
+        max_priority_fee_per_gas: gas_tip_cap,
+        gas_limit: params.gas_limit,
+        to: TxKind::Call(params.to),
+        value: U256::ZERO,
+        input: params.calldata.clone(),
+        access_list: Default::default(),
     }
 }

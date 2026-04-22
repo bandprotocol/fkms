@@ -1,4 +1,6 @@
-use crate::codec::evm::decode_tx;
+use crate::codec::evm::{
+    EvmTxParams, compute_signing_hash, create_relay_calldata, encode_signed_tx,
+};
 use crate::codec::flow;
 use crate::codec::icon::{
     create_signing_payload as create_icon_signing_payload, encode_tx_for_signing, sign_tx,
@@ -11,15 +13,18 @@ use crate::config::signer::local::ChainType;
 use crate::proto::fkms::v1::ChainType as proto_chain_type;
 use crate::proto::fkms::v1::fkms_service_server::FkmsService;
 use crate::proto::fkms::v1::{
-    GetSignerAddressesRequest, GetSignerAddressesResponse, SignEvmRequest, SignEvmResponse,
-    SignFlowRequest, SignFlowResponse, SignIconRequest, SignIconResponse, SignSorobanRequest,
-    SignSorobanResponse, SignXrplRequest, SignXrplResponse, Signers,
+    EvmSignerPayload, GetSignerAddressesRequest, GetSignerAddressesResponse, SignEvmRequest,
+    SignEvmResponse, SignFlowRequest, SignFlowResponse, SignIconRequest, SignIconResponse,
+    SignSorobanRequest, SignSorobanResponse, SignXrplRequest, SignXrplResponse, Signers,
 };
 use crate::server::Server;
 use crate::server::utils::filter_usd_signal;
+use alloy_primitives::U256;
+use alloy_primitives::{Address, Bytes};
 use k256::sha2::Sha512;
 use sha3::{Digest, Sha3_256};
 use std::collections::HashMap;
+use std::str::FromStr;
 use tonic::{Request, Response, Status};
 use tracing::{error, info, instrument, warn};
 
@@ -32,31 +37,45 @@ impl FkmsService for Server {
     ) -> Result<Response<SignEvmResponse>, Status> {
         let sign_evm_request = request.into_inner();
 
-        // decode tx, verify decoded prices, and tss message
-        let evm_tx = decode_tx(&sign_evm_request.message)
-            .map_err(|e| Status::internal(format!("Failed to decode tx: {e}")))?;
+        let signer_payload = sign_evm_request.signer_payload.ok_or_else(|| {
+            Status::invalid_argument("signer_payload field is required and cannot be null")
+        })?;
 
-        let decoded_tss_message = decode_tss_message(&evm_tx.tss.message)
+        let tss = sign_evm_request
+            .tss
+            .ok_or_else(|| Status::invalid_argument("tss field is required and cannot be null"))?;
+
+        let decoded_tss_message = decode_tss_message(&tss.message)
             .map_err(|e| Status::internal(format!("Failed to decode TSS message: {e}")))?;
 
-        // run pre sign hooks
+        // Run pre sign hooks.
         for hook in &self.pre_sign_hooks {
             hook.call(&decoded_tss_message.packet).await?;
         }
 
         match self
             .signers
-            .get(&(ChainType::Evm, sign_evm_request.address.clone()))
+            .get(&(ChainType::Evm, signer_payload.address.clone()))
         {
             Some(signer) => {
-                match signer
-                    .sign(&sha3::Keccak256::digest(&sign_evm_request.message))
-                    .await
-                {
-                    Ok(s) => {
-                        let response = SignEvmResponse { signature: s };
-                        info!("successfully signed evm message");
-                        Ok(Response::new(response))
+                // Build tx params and compute the signing hash using alloy.
+                let params = build_evm_tx_params(&signer_payload, &tss)
+                    .map_err(|e| Status::internal(format!("Failed to build tx params: {e}")))?;
+
+                let signing_hash = compute_signing_hash(&params).map_err(|e| {
+                    Status::internal(format!("Failed to compute signing hash: {e}"))
+                })?;
+
+                match signer.sign(&signing_hash).await {
+                    Ok(sig) => {
+                        // Encode the complete signed transaction using alloy.
+                        let tx_blob = encode_signed_tx(&params, &sig).map_err(|e| {
+                            error!("failed to encode signed evm tx: {:?}", e);
+                            Status::internal(format!("Failed to encode signed tx: {e}"))
+                        })?;
+
+                        info!("successfully signed evm transaction");
+                        Ok(Response::new(SignEvmResponse { tx_blob }))
                     }
                     Err(e) => {
                         error!("failed to sign evm message: {:?}", e);
@@ -65,7 +84,7 @@ impl FkmsService for Server {
                 }
             }
             None => {
-                warn!("no signer found for {}", sign_evm_request.address);
+                warn!("no signer found for {}", signer_payload.address);
                 Err(Status::not_found("Signer not found"))
             }
         }
@@ -504,4 +523,50 @@ impl FkmsService for Server {
 
         Ok(Response::new(GetSignerAddressesResponse { signers }))
     }
+}
+
+/// Converts proto `EvmSignerPayload` + TSS fields into the codec's `EvmTxParams`.
+/// Calldata is built from the TSS components (message, random_addr, signature_s).
+/// Big-endian byte slices for gas amounts are decoded into u128.
+fn build_evm_tx_params(
+    p: &EvmSignerPayload,
+    tss: &crate::proto::fkms::v1::Tss,
+) -> anyhow::Result<EvmTxParams> {
+    let to = Address::from_str(&p.to)
+        .map_err(|e| anyhow::anyhow!("invalid `to` address '{}': {e}", p.to))?;
+
+    let calldata = Bytes::from(create_relay_calldata(
+        &tss.message,
+        &tss.random_addr,
+        &tss.signature_s,
+    )?);
+
+    let gas_price = if !p.gas_price.is_empty() {
+        Some(U256::from_be_slice(&p.gas_price).to::<u128>())
+    } else {
+        None
+    };
+
+    let gas_fee_cap = if !p.gas_fee_cap.is_empty() {
+        Some(U256::from_be_slice(&p.gas_fee_cap).to::<u128>())
+    } else {
+        None
+    };
+
+    let gas_tip_cap = if !p.gas_tip_cap.is_empty() {
+        Some(U256::from_be_slice(&p.gas_tip_cap).to::<u128>())
+    } else {
+        None
+    };
+
+    Ok(EvmTxParams {
+        chain_id: p.chain_id,
+        nonce: p.nonce,
+        to,
+        calldata,
+        gas_limit: p.gas_limit,
+        gas_price,
+        gas_fee_cap,
+        gas_tip_cap,
+    })
 }
