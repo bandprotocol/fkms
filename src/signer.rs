@@ -11,6 +11,7 @@ use ripemd::Ripemd160;
 use sha3::Sha3_256;
 
 use crate::config::signer::local::ChainType;
+use cosmrs::AccountId;
 
 #[async_trait::async_trait]
 pub trait Signer: Send + Sync + 'static {
@@ -96,4 +97,32 @@ pub fn public_key_to_icon_address(public_key: &[u8]) -> anyhow::Result<String> {
 
     // Icon address is the last 20 bytes of the Sha3_256 hash
     Ok(format!("hx{}", hex::encode(&hash[12..])))
+}
+
+pub fn public_key_to_secret_address(public_key: &[u8]) -> anyhow::Result<String> {
+    // Cosmos SDK account address for secp256k1 is:
+    //   bech32(prefix, ripemd160(sha256(pubkey_bytes)))
+    // where pubkey_bytes is the compressed SEC1 encoded pubkey (33 bytes).
+    if public_key.len() != 33 {
+        return Err(anyhow!(
+            "Invalid public key length for Secret address. Expected 33 bytes, got {}",
+            public_key.len()
+        ));
+    }
+
+    // For compressed SEC1 pubkeys, the first byte is 0x02 or 0x03.
+    if public_key[0] != 0x02 && public_key[0] != 0x03 {
+        return Err(anyhow!(
+            "Invalid public key SEC1 prefix for Secret address. Expected 0x02/0x03, got 0x{:02x}",
+            public_key[0]
+        ));
+    }
+
+    let sha256 = Sha256::digest(public_key);
+    let account_id = Ripemd160::digest(sha256);
+    let acc_id_bytes: &[u8] = account_id.as_slice();
+    // Secret Network typically uses the `secret` bech32 prefix.
+    let account_id = AccountId::new("secret", acc_id_bytes)
+        .map_err(|e| anyhow!("failed to create Secret AccountId: {e}"))?;
+    Ok(account_id.to_string())
 }
